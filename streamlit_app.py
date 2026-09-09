@@ -15,7 +15,7 @@ st.caption("TAIWAN MARKET LENS  /  台股・ETF 研究工具")
 st.title("台股比較室")
 st.write("同一起點，看見不同走勢。比較股票與 ETF 的歷史報酬和風險。")
 
-comparison_tab, about_tab = st.tabs(["行情比較", "關於與使用說明"])
+comparison_tab, correlation_tab, about_tab = st.tabs(["行情比較", "相關性與分散效果", "關於與使用說明"], on_change="rerun", key="analysis_tabs")
 with about_tab:
     st.markdown(Path(__file__).with_name("about.md").read_text(encoding="utf-8"))
 
@@ -235,3 +235,8 @@ with comparison_tab:
         """)
     st.caption(f"資料取得時間（台北）：{min(fetched)} · 日線最新共同日期：{last:%Y/%m/%d}")
 
+
+if correlation_tab.open:
+    with correlation_tab:
+        from correlation import render_analysis
+        render_analysis(prices, label, basis)
