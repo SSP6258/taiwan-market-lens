@@ -241,10 +241,12 @@ with comparison_tab:
 
 if correlation_tab.open:
     with correlation_tab:
-        from correlation import render_analysis
+        from module_compat import load_renderer
+        render_analysis = load_renderer("correlation", "render_analysis", "weights")
         render_analysis(prices, label, basis, weights, portfolio_name)
 
 if beta_tab.open:
     with beta_tab:
-        from beta_analysis import render_beta
+        from module_compat import load_renderer
+        render_beta = load_renderer("beta_analysis", "render_beta", "weights")
         render_beta(prices, label, display_names, start, end, basis, weights, portfolio_name)

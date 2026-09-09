@@ -90,5 +90,6 @@ def render_analysis(prices, label, basis, weights=None, portfolio_name='等權�
         st.caption("此比較呈現特定期間的歷史結果，不代表最佳配置。最大回撤可能未改善；相關性也可能在市場壓力下升高。")
 
     with st.container(border=True):
-        from insights import render_insights
+        from module_compat import load_renderer
+        render_insights = load_renderer("insights", "render_insights", "weights")
         render_insights(volatility, drawdown, corr, daily, segment, label, basis, weights, portfolio_name)
