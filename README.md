@@ -60,3 +60,9 @@ python -m venv .venv
 離線測試使用明確隔離的合成資料驗證計算與 UI，不會出現在正式應用程式。
 
 本地可使用未納入 Git 的 `local_defaults.json` 指定預設代碼陣列。本機保留原來 10 檔；雲端未提供此檔時預設為 0050、2330、2454。
+
+## 選用 AI 解讀
+
+數據解讀由程式直接計算，不需要 LLM。AI 按鈕需在本地 `.streamlit/secrets.toml` 或雲端 Secrets 設定 `HF_TOKEN` 與 `HF_MODEL`（使用 Hugging Face Inference Providers 支援的完整模型 ID）。不要提交真實金鑰。點擊才傳送統計摘要；每次連線最多快取 10 組結果，切換資料不顯示舊摘要。服務讀取逾時為 30 秒，失敗可重試。部署請包含 `correlation.py` 與 `insights.py`。
+
+Beta 分析由 `beta_analysis.py` 提供，部署時需一併上傳；支援 0050、加權指數與其他基準，詳見 App 說明分頁。

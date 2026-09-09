@@ -75,6 +75,14 @@ def render_analysis(prices, label, basis):
         result = pd.DataFrame({'年化波動 (%)':volatility,'最大回撤 (%)':drawdown})
         result.index = [label(s) if s != '等權重組合' else s for s in result.index]
         bars = result.reset_index(names='標的')
-        st.altair_chart(alt.Chart(bars).mark_bar(cornerRadiusEnd=4).encode(y=alt.Y('標的:N',sort='-x',title=None),x=alt.X('年化波動 (%):Q'),color=alt.condition(alt.datum.標的=='等權重組合',alt.value('#35E0CE'),alt.value('#536B91')),tooltip=['標的:N',alt.Tooltip('年化波動 (%):Q',format='.1f')]).properties(height=max(220,len(bars)*30)), width='stretch')
+        mean_volatility = float(volatility.drop('等權重組合').mean())
+        st.caption(f"金色虛線：個別標的平均年化波動 {mean_volatility:.1f}%（不含組合）；青綠色：等權重組合。")
+        bar_chart = alt.Chart(bars).mark_bar(cornerRadiusEnd=4).encode(y=alt.Y('標的:N',sort='-x',title=None),x=alt.X('年化波動 (%):Q', title='年化波動 (%)'),color=alt.condition(alt.datum.標的=='等權重組合',alt.value('#35E0CE'),alt.value('#536B91')),tooltip=['標的:N',alt.Tooltip('年化波動 (%):Q',format='.1f')])
+        reference = alt.Chart(pd.DataFrame({'年化波動 (%)':[mean_volatility], '說明':['個別標的平均（不含組合）']})).mark_rule(color='#F3C969', strokeWidth=2, strokeDash=[6,4]).encode(x=alt.X('年化波動 (%):Q', title='年化波動 (%)'), tooltip=['說明:N',alt.Tooltip('年化波動 (%):Q',format='.1f')])
+        st.altair_chart((bar_chart + reference).properties(height=max(220,len(bars)*30)), width='stretch')
         st.dataframe(result.style.format('{:.1f}%'), width='stretch')
         st.caption("此比較呈現特定期間的歷史結果，不代表最佳配置。最大回撤可能未改善；相關性也可能在市場壓力下升高。")
+
+    with st.container(border=True):
+        from insights import render_insights
+        render_insights(volatility, drawdown, corr, daily, segment, label, basis)
