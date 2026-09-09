@@ -11,7 +11,7 @@ APP = str(Path(__file__).resolve().parents[1] / "streamlit_app.py")
 
 @pytest.fixture(autouse=True)
 def offline_security_names():
-    with patch("securities.load_names", return_value=(snapshot_names(), [])):
+    with patch("market.DEFAULT_SYMBOLS", [ "009805.TW", "00830.TW", "00891.TW", "00984B.TWO", "0052.TW", "009816.TW", "00685L.TW", "009820.TW", "00635U.TW", "8069.TWO"]), patch("securities.load_names", return_value=(snapshot_names(), [])):
         yield
 
 
@@ -125,3 +125,11 @@ def test_common_period_explains_both_limiting_symbols():
         assert "限制共同起日" in notice
         assert "0052 富邦科技：資料截至" in notice
         assert "限制共同迄日" in notice
+
+
+def test_new_default_selection():
+    with patch("market.DEFAULT_SYMBOLS", ["0050.TW", "2330.TW", "2454.TW"]), patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app().run(timeout=30)
+        assert not app.exception
+        assert app.multiselect[0].value == ["0050.TW", "2330.TW", "2454.TW"]
+        assert len(app.metric) == 3

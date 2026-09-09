@@ -2,6 +2,7 @@
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import re
+import json
 import tempfile
 from zoneinfo import ZoneInfo
 
@@ -29,7 +30,11 @@ CATALOG = {
     "2882.TW": "國泰金", "2891.TW": "中信金", "2412.TW": "中華電",
     "2603.TW": "長榮", "3008.TW": "大立光", "6488.TWO": "環球晶",
 }
-DEFAULT_SYMBOLS = [ "009805.TW", "00830.TW", "00891.TW", "00984B.TWO", "0052.TW", "009816.TW", "00685L.TW", "009820.TW", "00635U.TW", "8069.TWO"]
+DEFAULT_SYMBOLS = ["0050.TW", "2330.TW", "2454.TW"]
+# Optional machine-local defaults; this file is excluded from Git.
+_local_defaults = Path(__file__).with_name("local_defaults.json")
+if _local_defaults.exists():
+    DEFAULT_SYMBOLS = json.loads(_local_defaults.read_text(encoding="utf-8"))
 MAX_SYMBOLS = 12
 
 
