@@ -133,3 +133,16 @@ def test_new_default_selection():
         assert not app.exception
         assert app.multiselect[0].value == ["0050.TW", "2330.TW", "2454.TW"]
         assert len(app.metric) == 3
+
+
+def test_metric_cards_rank_by_return():
+    def ranked_history(symbol, start, end):
+        frame, stamp = fixture_history(symbol, start, end)
+        growth = {"0050.TW": -0.1, "2330.TW": 0.2, "2454.TW": 0.4, "0052.TW": 0.1, "8069.TWO": 0.3}[symbol]
+        frame["Close"] = [100 + i * growth for i in range(len(frame))]
+        frame["Adj Close"] = frame["Close"]
+        return frame, stamp
+    with patch("market.DEFAULT_SYMBOLS", ["0050.TW", "2330.TW", "2454.TW", "0052.TW", "8069.TWO"]), patch("market.load_symbol", side_effect=ranked_history):
+        app = new_app().run(timeout=30)
+        assert not app.exception
+        assert [m.label.split()[0] for m in app.metric] == ["2454", "8069", "2330", "0052"]

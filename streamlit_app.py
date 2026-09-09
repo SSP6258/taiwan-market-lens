@@ -178,10 +178,12 @@ with comparison_tab:
         st.info(f"已自動縮至共同期間 {first:%Y/%m/%d} — {last:%Y/%m/%d}，所有線從 0.0% 開始。\n\n" + "\n\n".join(reasons))
         st.caption("以上為所選區間內資料來源的有效行情日期，不一定等於掛牌或下市日期。")
     with st.container(horizontal=True):
-        for s in returns.columns[:4]:
-            st.metric(label(s), f"{returns[s].iloc[-1]:+.1f}%", border=True)
+        for s in returns.iloc[-1].sort_values(ascending=False, kind="stable").index[:4]:
+            st.metric(label(s), f"{returns[s].iloc[-1]:+.1f}%",
+                      delta=f"{first:%Y/%m/%d} — {last:%Y/%m/%d}",
+                      delta_color="off", delta_arrow="off", border=True)
     if len(returns.columns) > 4:
-        st.caption("上方顯示前 4 檔；完整標的皆列於下方圖表與報酬風險表。")
+        st.caption("上方依區間報酬由高至低顯示前 4 檔；完整標的皆列於下方圖表與報酬風險表。")
 
     # Stable color identities across selection changes.
     colors = ["#3B9EFF", "#FF922B", "#D0A2FF", "#FFE14A", "#FF5263", "#35E0CE",
