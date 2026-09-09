@@ -1,0 +1,60 @@
+# 台股比較室
+
+簡潔的繁體中文 Streamlit 儀表板：同圖比較最多 12 檔台灣股票／ETF，支援還原價格、收盤價、共同日期基準、回撤、年化報酬與波動、CSV 匯出。
+
+預設依序：009805、00830、00891、00984B、0052、009816、00685L、009820、00635U、8069。00984B 與 8069 使用上櫃 `.TWO`。
+
+新增股票：在「其他股票代碼」輸入後按「加入上方清單」或 Enter。新增標的會置頂並與多選清單同步，可直接移除。顯示已選數量／12 檔上限，並提供完整清單；超過上限不變更原選擇。00988B 自動辨識為上櫃玉山嚴選非投債；其他清單外代碼會嘗試辨識上市／上櫃，可手動指定後綴。
+
+## 本地啟動（Windows PowerShell，Python 3.13）
+
+```powershell
+python -m venv .venv
+./.venv/Scripts/python.exe -m pip install -r requirements.txt
+./.venv/Scripts/python.exe -m streamlit run streamlit_app.py
+```
+
+安裝後直接雙擊 `run.bat`，會開啟瀏覽器與服務視窗。瀏覽 http://localhost:8501 。保留服務視窗，停止服務按 Ctrl+C。重複執行會重用已啟動的 Dashboard；若 8501 被其他服務占用，會自動在 8502–8510 選擇可用埠，實際網址會印在視窗。也可使用 `start.ps1`。
+
+## Streamlit Community Cloud
+
+1. 將 `streamlit_app.py`、`about.md`、`market.py`、`lightweight_chart.py`、整個 `vendor/`、`static/`、`requirements.txt` 與 `.streamlit/config.toml` 推送到自己的 GitHub repository。
+2. 在 Streamlit Community Cloud 建立 app，選 repository／branch，入口填 `streamlit_app.py`。
+3. Advanced settings 選 Python 3.13，再部署。此版本不需要 API key。
+
+目前僅本地實作，未建立公開部署。
+官方部署說明：https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy
+
+## Lightweight Charts 圖表
+
+使用 Streamlit Custom Components v2 與固定版本 Lightweight Charts 5.0.9，已取代 Plotly。圖表程式隨專案保存在 `vendor/`，瀏覽器不需另外向 CDN 下載，也不需要 Node.js 建置。
+
+- 所有標的實線、固定預設配色，共用百分比座標。
+- 拖曳平移、滾輪／觸控縮放、重設縮放。
+- 十字游標對應日期，圖例即時顯示該日數值；離開圖表還原最新值。
+- 點擊圖例切換曲線，可按「顯示全部」還原。互動在瀏覽器端執行，不會重新抓行情。
+- 座標與圖例固定小數 1 位；原始計算精度不變。
+- 授權與 copyright notice 位於 `vendor/`，畫面保留 TradingView attribution。
+- 來源：https://unpkg.com/lightweight-charts@5.0.9/dist/lightweight-charts.standalone.production.js
+
+## 資料與計算
+
+- 中文名稱與市場來自證交所 ISIN 上市／上櫃證券名錄；每 6 小時快取更新，內建 `data/securities.json` 備援。所有選股標籤、圖表圖例、指標卡、表格及 CSV 使用相同名稱。未收錄的標的顯示「名稱暫未取得」。雲端部署請一併提交 `securities.py` 與 `data/securities.json`。
+
+- yfinance / Yahoo Finance 日線；常用標的清單並非完整股票名錄。其他代碼直接輸入，上市 `.TW`、上櫃 `.TWO`。
+- 每檔／區間快取 1 小時，最多 256 筆；最多 4 個平行請求，價格與回撤切換不再抓資料。
+- 所有標的有效正價格的交集日期，同一起點設為 0%；不補空值。個別抓取失敗會明確標示並排除，全部失敗顯示錯誤，不產生假行情。
+- 累積報酬 `(P/P0-1)*100`；回撤 `(P/cummax(P)-1)*100`，使用共同日期取樣。
+- 年化報酬使用 365.25／實際日曆天數，區間不足 365 天留空。波動使用各檔原始每日報酬的樣本標準差 × √252，限制在共同起訖期間，缺值不補。
+- Adj Close 為來源的股利／分割調整價格，並非實際扣稅再投資；收盤價模式可能受分割影響。
+- 資料服務可能限流、延遲、修訂，當日可能未收盤；公開／商業提供資料前需確認 Yahoo 資料授權。
+- yfinance API：https://ranaroussi.github.io/yfinance/reference/api/yfinance.Ticker.history.html
+
+## 測試
+
+```powershell
+./.venv/Scripts/python.exe -m pip install pytest
+./.venv/Scripts/python.exe -m pytest -q
+```
+
+離線測試使用明確隔離的合成資料驗證計算與 UI，不會出現在正式應用程式。
