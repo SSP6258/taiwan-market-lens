@@ -21,7 +21,7 @@ def fit_beta(asset, benchmark):
     return beta, intercept, r2, pairs
 
 
-def render_beta(prices, label, names, start, end, basis):
+def render_beta(prices, label, names, start, end, basis, weights=None, portfolio_name='等權重組合'):
     st.subheader('對市場漲跌，有多敏感？')
     st.caption('BETA LAB · 每日報酬回歸分析')
     benchmark_label = lambda s: '台灣加權指數（大盤）· ^TWII' if s == '^TWII' else label(s)
@@ -40,6 +40,22 @@ def render_beta(prices, label, names, start, end, basis):
         return
     if benchmark == '^TWII':
         st.info('大盤基準採加權價格指數收盤值，不含股息再投資。標的仍使用目前選擇的價格基準；若採還原價格，兩者的配息處理不同。')
+    source_label = label
+    label = lambda s: portfolio_name if s == '__portfolio__' else source_label(s)
+    prices = prices.copy()
+    if weights is not None:
+        if set(weights.index) != set(prices.columns):
+            st.warning('部分配置標的行情缺失，暫不計算組合 Beta；單檔分析仍可使用。')
+        else:
+            from correlation import analysis_data
+            _, _, segment = analysis_data(prices)
+            if len(segment) >= 21:
+                portfolio = (segment / segment.iloc[0]).mul(weights, axis=1).sum(axis=1)
+                prices['__portfolio__'] = portfolio.reindex(prices.index)
+                st.caption('組合採側邊欄起始配置，持有不再平衡；使用與分散效果相同的最長完整區段，再對齊基準。')
+                st.caption('目前配置：' + '、'.join(f'{source_label(s)} {weights[s]*100:.1f}%' for s in weights.index))
+            else:
+                st.info('完整行情區段不足，暫無法計算組合 Beta。')
     rows, fits = [], {}
     for symbol in prices:
         if symbol == benchmark:

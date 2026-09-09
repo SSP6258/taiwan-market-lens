@@ -6,16 +6,17 @@ import requests
 import streamlit as st
 
 
-def conclusions(volatility, drawdown):
-    individual = volatility.drop('等權重組合')
-    portfolio = volatility['等權重組合']
-    gap = individual.mean() - portfolio
+def conclusions(volatility, drawdown, weights=None, portfolio_name='等權重組合'):
+    individual = volatility.drop(portfolio_name)
+    portfolio = volatility[portfolio_name]
+    average = individual.mean() if weights is None else individual.mul(weights).sum()
+    gap = average - portfolio
     direction = '低於' if gap >= 0 else '高於'
-    lines = [f"組合年化波動為 {portfolio:.1f}%，{direction}個別標的平均 {individual.mean():.1f}%，差距 {abs(gap):.1f} 個百分點。此平均值是比較基準，不是另一個投資組合。"]
+    lines = [f"組合年化波動為 {portfolio:.1f}%，{direction}依起始比重加權的個別波動 {average:.1f}%，差距 {abs(gap):.1f} 個百分點。此平均值是比較基準，不是另一個投資組合。"]
     lines.append(f"最低單一標的波動為 {individual.min():.1f}%；降低平均波動不等於比每一檔都穩定。")
-    dd = drawdown.drop('等權重組合')
-    better = int((drawdown['等權重組合'] > dd).sum())
-    lines.append(f"組合最大回撤為 {drawdown['等權重組合']:.1f}%，跌幅較 {better}/{len(dd)} 檔標的淺。回撤與波動需分開評估。")
+    dd = drawdown.drop(portfolio_name)
+    better = int((drawdown[portfolio_name] > dd).sum())
+    lines.append(f"組合最大回撤為 {drawdown[portfolio_name]:.1f}%，跌幅較 {better}/{len(dd)} 檔標的淺。回撤與波動需分開評估。")
     return lines
 
 
@@ -65,9 +66,9 @@ def ai_panel(payload):
         st.caption('AI 輔助解讀，請以原始統計為準；相同摘要在本次連線中重用結果。')
 
 
-def render_insights(volatility, drawdown, corr, daily, segment, label, basis):
+def render_insights(volatility, drawdown, corr, daily, segment, label, basis, weights=None, portfolio_name='等權重組合'):
     st.subheader('數據解讀')
-    lines = conclusions(volatility, drawdown)
+    lines = conclusions(volatility, drawdown, weights, portfolio_name)
     for line in lines:
         st.write(line)
     pairs = [(float(corr.loc[a,b]), label(a), label(b)) for i,a in enumerate(corr.columns) for b in corr.columns[i+1:] if corr.loc[a,b] == corr.loc[a,b]]
@@ -78,5 +79,5 @@ def render_insights(volatility, drawdown, corr, daily, segment, label, basis):
     payload = json.dumps(dict(basis=basis, conclusions=lines, pairs=pairs,
         correlation_period=[str(daily.index[0].date()), str(daily.index[-1].date()),len(daily)],
         portfolio_period=[str(segment.index[0].date()),str(segment.index[-1].date()),len(segment)-1],
-        assumption='起初等權重，持有不再平衡，未計成本與稅金'), ensure_ascii=False, sort_keys=True)
+        weights={} if weights is None else weights.to_dict(), assumption='依提供的起始比重持有不再平衡，未計成本與稅金'), ensure_ascii=False, sort_keys=True)
     ai_panel(payload)

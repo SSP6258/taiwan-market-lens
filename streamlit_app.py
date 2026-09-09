@@ -124,6 +124,9 @@ with comparison_tab:
         st.warning(f"最多比較 {MAX_SYMBOLS} 檔，請減少選擇或手動輸入的代碼。"); st.stop()
     if len(dates) != 2 or dates[0] >= dates[1]:
         st.info("請選擇完整日期區間，且結束日期須晚於開始日期。"); st.stop()
+    from allocation import allocation_picker
+    with st.sidebar:
+        weights, portfolio_name = allocation_picker(symbols, label)
     start, end = dates
     if refresh:
         for symbol in symbols:
@@ -239,9 +242,9 @@ with comparison_tab:
 if correlation_tab.open:
     with correlation_tab:
         from correlation import render_analysis
-        render_analysis(prices, label, basis)
+        render_analysis(prices, label, basis, weights, portfolio_name)
 
 if beta_tab.open:
     with beta_tab:
         from beta_analysis import render_beta
-        render_beta(prices, label, display_names, start, end, basis)
+        render_beta(prices, label, display_names, start, end, basis, weights, portfolio_name)

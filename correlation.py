@@ -18,7 +18,7 @@ def analysis_data(prices):
     return daily, corr, segment
 
 
-def render_analysis(prices, label, basis):
+def render_analysis(prices, label, basis, weights=None, portfolio_name='等權重組合'):
     st.subheader("一起漲跌，還是彼此分散？")
     st.caption("DIVERSIFICATION LAB · 每日報酬相關性與等權重持有試算")
     if prices.shape[1] < 2:
@@ -63,26 +63,32 @@ def render_analysis(prices, label, basis):
         if len(segment) < 21:
             st.info("等權重試算需要至少 21 個連續完整的行情觀測日。")
             return
+        if weights is None:
+            weights = pd.Series(1 / len(segment.columns), index=segment.columns)
+        if set(weights.index) != set(segment.columns):
+            st.warning('部分標的行情缺失，暫停組合試算以保留原配置；請移除失敗標的或重新取得資料。')
+            return
+        st.caption('目前配置：' + '、'.join(f'{label(s)} {weights[s]*100:.1f}%' for s in weights.index))
         wealth = segment / segment.iloc[0]
-        portfolio = wealth.mean(axis=1)
-        wealth['等權重組合'] = portfolio
+        portfolio = wealth.mul(weights, axis=1).sum(axis=1)
+        wealth[portfolio_name] = portfolio
         volatility = wealth.pct_change(fill_method=None).iloc[1:].std()*np.sqrt(252)*100
         drawdown = (wealth / wealth.cummax() - 1).min()*100
         st.caption(f"試算期間 {segment.index[0]:%Y/%m/%d} — {segment.index[-1]:%Y/%m/%d} · 採最長連續完整行情區段")
-        st.write(f"起始各投入 {100/prices.shape[1]:.1f}%，之後持有、不再平衡。未計交易成本與稅金，使用目前價格基準；組合曲線為各檔標準化價格的平均。")
-        for card, title, value in zip(st.columns(3), ['組合區間報酬','組合年化波動','組合最大回撤'], [(portfolio.iloc[-1]-1)*100,volatility['等權重組合'],drawdown['等權重組合']]):
+        st.write("依目前起始配置持有、不再平衡。未計交易成本與稅金；組合價值為各檔標準化價格依起始比重加權。")
+        for card, title, value in zip(st.columns(3), ['組合區間報酬','組合年化波動','組合最大回撤'], [(portfolio.iloc[-1]-1)*100,volatility[portfolio_name],drawdown[portfolio_name]]):
             card.metric(title, f'{value:.1f}%')
         result = pd.DataFrame({'年化波動 (%)':volatility,'最大回撤 (%)':drawdown})
-        result.index = [label(s) if s != '等權重組合' else s for s in result.index]
+        result.index = [label(s) if s != portfolio_name else s for s in result.index]
         bars = result.reset_index(names='標的')
-        mean_volatility = float(volatility.drop('等權重組合').mean())
-        st.caption(f"金色虛線：個別標的平均年化波動 {mean_volatility:.1f}%（不含組合）；青綠色：等權重組合。")
-        bar_chart = alt.Chart(bars).mark_bar(cornerRadiusEnd=4).encode(y=alt.Y('標的:N',sort='-x',title=None),x=alt.X('年化波動 (%):Q', title='年化波動 (%)'),color=alt.condition(alt.datum.標的=='等權重組合',alt.value('#35E0CE'),alt.value('#536B91')),tooltip=['標的:N',alt.Tooltip('年化波動 (%):Q',format='.1f')])
-        reference = alt.Chart(pd.DataFrame({'年化波動 (%)':[mean_volatility], '說明':['個別標的平均（不含組合）']})).mark_rule(color='#F3C969', strokeWidth=2, strokeDash=[6,4]).encode(x=alt.X('年化波動 (%):Q', title='年化波動 (%)'), tooltip=['說明:N',alt.Tooltip('年化波動 (%):Q',format='.1f')])
+        mean_volatility = float(volatility.drop(portfolio_name).mul(weights).sum())
+        st.caption(f"金色虛線：依起始比重加權的個別年化波動 {mean_volatility:.1f}%（不含組合）；青綠色：{portfolio_name}。")
+        bar_chart = alt.Chart(bars).mark_bar(cornerRadiusEnd=4).encode(y=alt.Y('標的:N',sort='-x',title=None),x=alt.X('年化波動 (%):Q', title='年化波動 (%)'),color=alt.condition(alt.datum.標的==portfolio_name,alt.value('#35E0CE'),alt.value('#536B91')),tooltip=['標的:N',alt.Tooltip('年化波動 (%):Q',format='.1f')])
+        reference = alt.Chart(pd.DataFrame({'年化波動 (%)':[mean_volatility], '說明':['依起始比重加權的個別波動（不含組合）']})).mark_rule(color='#F3C969', strokeWidth=2, strokeDash=[6,4]).encode(x=alt.X('年化波動 (%):Q', title='年化波動 (%)'), tooltip=['說明:N',alt.Tooltip('年化波動 (%):Q',format='.1f')])
         st.altair_chart((bar_chart + reference).properties(height=max(220,len(bars)*30)), width='stretch')
         st.dataframe(result.style.format('{:.1f}%'), width='stretch')
         st.caption("此比較呈現特定期間的歷史結果，不代表最佳配置。最大回撤可能未改善；相關性也可能在市場壓力下升高。")
 
     with st.container(border=True):
         from insights import render_insights
-        render_insights(volatility, drawdown, corr, daily, segment, label, basis)
+        render_insights(volatility, drawdown, corr, daily, segment, label, basis, weights, portfolio_name)
