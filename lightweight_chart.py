@@ -8,29 +8,29 @@ HTML = """
     <div class="actions"><button class="fit" type="button">重設縮放</button><button class="show-all" type="button">顯示全部</button></div></div>
   <div class="canvas" role="img" aria-label="多檔歷史漲跌幅互動圖表"></div>
   <div class="legend" aria-label="標的數值與曲線開關"></div>
-  <div class="chart-footer"><span>拖曳平移 · 滾輪縮放 · 點擊標的開關曲線</span><a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">TradingView Lightweight Charts™</a></div>
+  <div class="chart-footer"><span>電腦：拖曳平移、滾輪縮放。手機：左右拖曳、雙指縮放、長按查看數值。點圖例開關曲線。</span><a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">TradingView Lightweight Charts™</a></div>
 </section>
 """
 CSS = """
-.market-chart {font-family:var(--st-font),sans-serif;color:var(--st-text-color);width:100%;}
+.market-chart {container-type:inline-size;font-family:var(--st-font),sans-serif;color:var(--st-text-color);width:100%;}
 .chart-toolbar {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:6px 0 16px;font-size:13px;}
 .eyebrow {color:#94a3b8;font-size:11px;letter-spacing:1.5px;}
 .chart-date {font-variant-numeric:tabular-nums;}
 .actions {display:flex;gap:8px;}
 button {font:inherit;cursor:pointer;color:inherit;}
-.actions button {border:1px solid var(--st-border-color);background:transparent;border-radius:6px;padding:7px 12px;font-size:12px;}
+.actions button {border:1px solid var(--st-border-color);background:transparent;border-radius:6px;padding:10px 12px;min-height:44px;font-size:12px;}
 button:hover {background:var(--st-secondary-background-color);}
 button:focus-visible {outline:2px solid var(--st-primary-color);outline-offset:2px;}
 .canvas {height:410px;width:100%;border-radius:8px;overflow:hidden;}
 .legend {display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px;margin-top:18px;}
-.legend button {display:flex;align-items:center;gap:8px;padding:10px 12px;min-width:0;border:1px solid var(--st-border-color);border-radius:7px;background:transparent;text-align:left;}
+.legend button {display:flex;align-items:center;gap:8px;padding:10px 12px;min-width:0;min-height:44px;border:1px solid var(--st-border-color);border-radius:7px;background:transparent;text-align:left;}
 .legend button[aria-pressed="false"] {opacity:.4;}
 .swatch {width:16px;height:3px;border-radius:3px;flex-shrink:0;}
 .name {font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .value {margin-left:auto;font-variant-numeric:tabular-nums;font-size:13px;font-weight:600;white-space:nowrap;}
 .chart-footer {display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;color:#94a3b8;font-size:11px;margin-top:14px;}
 .chart-footer a {color:#94a3b8;text-decoration:none;}
-@media(max-width:600px){.canvas{height:340px}.legend{grid-template-columns:1fr}.chart-toolbar{font-size:12px}}
+@container(max-width:600px){.canvas{height:320px}.legend{grid-template-columns:minmax(0,1fr)}.chart-toolbar{font-size:12px}.name{white-space:normal;overflow-wrap:anywhere}.actions{width:100%}.actions button{flex:1}.eyebrow{display:none}}
 """
 JS = """
 export default function({parentElement, data}) {
@@ -44,6 +44,8 @@ export default function({parentElement, data}) {
   const fmt = value => (value > 0 ? '+' : '') + (Math.abs(value) < .05 ? 0 : value).toFixed(1) + '%';
   const chart = L.createChart(host, {
     autoSize:true,
+    handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:false},
+    handleScale:{mouseWheel:true,pinch:true},
     layout:{background:{type:'solid',color:'#0F172A'},textColor:'#94A3B8',fontFamily:'Segoe UI, Microsoft JhengHei, sans-serif',fontSize:12,attributionLogo:true},
     grid:{vertLines:{visible:false},horzLines:{color:'#243147',style:2}},
     rightPriceScale:{borderColor:'#334155',scaleMargins:{top:.12,bottom:.12}},

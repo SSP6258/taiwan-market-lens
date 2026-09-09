@@ -97,7 +97,8 @@ with comparison_tab:
             if not selected:
                 st.caption("尚未選擇標的。")
         with st.form("add_symbols_form", border=False):
-            st.text_input("其他股票代碼", key="extra_symbols", placeholder="例如 00988B, 6510.TWO", help="輸入後按「加入上方清單」或 Enter；多檔以逗號分隔。自動辨識上市／上櫃，也可用 .TW、.TWO 指定。")
+            st.text_input("其他股票代碼", key="extra_symbols", placeholder="例如 00988B, 6510.TWO", help="輸入後點「加入上方清單」（手機不需 Enter）；多檔以逗號分隔。自動辨識上市／上櫃，也可用 .TW、.TWO 指定。")
+            st.caption("輸入完成後，點下方按鈕加入；不需按 Enter。")
             st.form_submit_button("加入上方清單", icon=":material/add:", on_click=add_symbols, width="stretch")
         if "add_notice" in st.session_state:
             kind, message = st.session_state.add_notice
@@ -177,8 +178,9 @@ with comparison_tab:
                 reasons.append(f"{label(s)}：{detail}，限制共同迄日")
         st.info(f"已自動縮至共同期間 {first:%Y/%m/%d} — {last:%Y/%m/%d}，所有線從 0.0% 開始。\n\n" + "\n\n".join(reasons))
         st.caption("以上為所選區間內資料來源的有效行情日期，不一定等於掛牌或下市日期。")
-    with st.container(horizontal=True):
-        for s in returns.iloc[-1].sort_values(ascending=False, kind="stable").index[:4]:
+    top_symbols = returns.iloc[-1].sort_values(ascending=False, kind="stable").index[:4]
+    for card, s in zip(st.columns(len(top_symbols)), top_symbols):
+        with card:
             st.metric(label(s), f"{returns[s].iloc[-1]:+.1f}%",
                       delta=f"{first:%Y/%m/%d} — {last:%Y/%m/%d}",
                       delta_color="off", delta_arrow="off", border=True)
@@ -216,6 +218,7 @@ with comparison_tab:
                      {s: colors[slots[s]] for s in chart_data.columns}, view)
 
     st.subheader("報酬與風險")
+    st.caption("手機可左右滑動表格查看所有欄位，也可下載 CSV。")
     table = stats.round(1).rename(index=label).reset_index()
     st.dataframe(table, hide_index=True, width="stretch", column_config={c: st.column_config.NumberColumn(c, format="%.1f%%") for c in stats.columns})
     export = returns.rename(columns=label).rename_axis("日期")
@@ -231,3 +234,4 @@ with comparison_tab:
         - 資料為第三方日線，可能延遲或修訂，當日可能尚未收盤。歷史績效不代表未來。
         """)
     st.caption(f"資料取得時間（台北）：{min(fetched)} · 日線最新共同日期：{last:%Y/%m/%d}")
+
