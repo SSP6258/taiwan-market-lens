@@ -7,3 +7,5 @@ __pycache__/
 **/data/*.html
 
 local_defaults.json
+
+local_portfolio.json

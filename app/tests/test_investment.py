@@ -13,6 +13,7 @@ def test_cash_excludes_buy_day_and_does_not_double_count():
     assert result.iloc[0]['含息損益']==150
     assert result.iloc[0]['期間成本配息率 (%)']==5
     assert len(events)==1
+    assert events.iloc[0]["當次配息殖利率 (%)"] == pytest.approx(5.0)
 
 
 def test_split_adjusted_units_not_split_twice():
@@ -32,8 +33,9 @@ render_investment(p,pd.Series({'A':1.}),AMOUNT,str,'還原價格')
     with patch('investment.load_distributions') as fetch:
         empty=AppTest.from_string(script.replace('AMOUNT','None')).run()
         assert not empty.metric
-        filled=AppTest.from_string(script.replace('AMOUNT','1000.')).run()
+        filled=AppTest.from_string(script.replace('AMOUNT','1000.')).run(timeout=15)
         assert not filled.exception
-        assert len(filled.metric)==3
-        assert filled.metric[1].value=='NT$ 1,100'
+        assert len(filled.metric)==4
+        assert filled.metric[0].value=="+10.0%"
+        assert filled.metric[2].value=='NT$ 1,100'
         fetch.assert_not_called()

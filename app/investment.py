@@ -1,13 +1,14 @@
 """Optional investment illustration; cash distributions never added to Adj Close."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from html import escape
 import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-UI_VERSION = 4
+UI_VERSION = 9
 
 
 @st.cache_data(ttl=3600, max_entries=256, show_spinner=False)
@@ -36,7 +37,10 @@ def cash_result(histories, weights, amount, first, last):
         coverage = h.index.min() <= last-pd.DateOffset(years=1)+pd.Timedelta(days=7)
         rows.append({'代碼':symbol,'投入金額':amount*weight,'期末市值':units*p1,'價差損益':units*p1-amount*weight,'期間除息金額':income,'含息損益':units*p1+income-amount*weight,'期間成本配息率 (%)':float(dividends.sum()/p0*100),'期末近12月殖利率 (%)':float(trailing.sum()/p1*100) if coverage else np.nan})
         for date, div in dividends[dividends>0].items():
-            events.append({'除息日':date.strftime('%Y/%m/%d'),'代碼':symbol,'每單位配息（元）':float(div),'估計除息金額':float(div*units)})
+            preceding = h.loc[h.index < date, 'Close']
+            previous_close = float(preceding.iloc[-1]) if len(preceding) else np.nan
+            event_yield = float(div / previous_close * 100) if np.isfinite(previous_close) and previous_close > 0 else np.nan
+            events.append({'除息日':date.strftime('%Y/%m/%d'),'代碼':symbol,'每單位配息（元）':float(div),'當次配息殖利率 (%)':event_yield,'估計除息金額':float(div*units)})
     return pd.DataFrame(rows),pd.DataFrame(events)
 
 
@@ -56,7 +60,7 @@ def monthly_distributions(events, symbols, first, last):
 def render_investment(prices, weights, amount, label, basis):
     if amount is None or amount <= 0:
         return
-    st.subheader('投入金額試算')
+    st.subheader('投資報酬試算')
     if set(prices.columns) != set(weights.index):
         st.warning('部分標的資料缺失，金額試算暫停；不自動重新分配資金。')
         return
@@ -67,15 +71,23 @@ def render_investment(prices, weights, amount, label, basis):
         return
     first,last=segment.index[0],segment.index[-1]
     value=(segment/segment.iloc[0]).mul(weights,axis=1).sum(axis=1)*amount
-    st.caption(f'{first:%Y/%m/%d} — {last:%Y/%m/%d} · 最長完整行情區段 · {basis}')
+    st.html(f'<div style="background:#FCE4E6;color:#7F2635;border:1px solid #EFA9B2;border-radius:12px;padding:20px 24px;line-height:1.6"><strong>試算期間｜{first:%Y/%m/%d} — {last:%Y/%m/%d}</strong><div style="margin-top:8px">最長完整行情區段 · {escape(basis)}</div></div>')
     st.caption('起初按比重一次投入、持有不再平衡；允許小數單位，未計交易成本、稅金。此為歷史理論試算。')
-    for card,title,v in zip(st.columns(3),['初始投入','期末試算價值','區間損益'],[amount,value.iloc[-1],value.iloc[-1]-amount]):
-        card.metric(title,f'NT$ {v:,.0f}')
-    st.line_chart(value.rename('資產價值（元）'),color='#35CDBF')
-    st.caption(f'最大高點至低點金額差：NT$ {(value.cummax()-value).max():,.0f}。還原價格試算不再另加配息。')
-    allocations=pd.DataFrame({'標的':[label(s) for s in weights.index],'比重 (%)':weights.values*100,'投入金額':weights.values*amount})
-    st.dataframe(allocations,hide_index=True,column_config={'比重 (%)':st.column_config.NumberColumn(format='%.1f'),'投入金額':st.column_config.NumberColumn(format='%.0f')})
-    with st.expander('現金配息與殖利率',expanded=False):
+    total_tab, dividend_tab = st.tabs(['總報酬', '配息'])
+    with total_tab:
+        with st.container(key='investment_summary'):
+            cards = st.columns(4, wrap=False)
+            cards[0].metric('區間報酬率', f'{(value.iloc[-1]/amount-1)*100:+.1f}%', border=True)
+            for card,title,v in zip(cards[1:],['初始投入','期末試算價值','區間損益'],[amount,value.iloc[-1],value.iloc[-1]-amount]):
+                card.metric(title,f'NT$ {v:,.0f}', border=True)
+        st.html('<style>.st-key-investment_summary [data-testid="stColumn"]{min-width:250px!important}.st-key-investment_summary [data-testid="stMetricValue"]{font-size:clamp(20px,2vw,30px)}</style>')
+        st.line_chart(value.rename('資產價值（元）'),color='#35CDBF')
+        st.caption(f'最大高點至低點金額差：NT$ {(value.cummax()-value).max():,.0f}。還原價格試算不再另加配息。')
+        allocations=pd.DataFrame({'標的':[label(s) for s in weights.index],'比重 (%)':weights.values*100,'投入金額':weights.values*amount})
+        st.dataframe(allocations,hide_index=True,column_config={'比重 (%)':st.column_config.NumberColumn(format='%.1f'),'投入金額':st.column_config.NumberColumn(format='%.0f')})
+        if not basis.startswith('還原'):
+            st.caption('目前採收盤價，此報酬率不含現金配息；含息結果請查看配息子分頁。')
+    with dividend_tab:
         st.caption('獨立採 Close＋除息事件計算，不將配息加到上方還原價格價值。除息金額不代表已付款入帳。')
         if not st.toggle('載入配息試算',key='cash_enabled'):
             return
@@ -129,4 +141,4 @@ def render_investment(prices, weights, amount, label, basis):
         st.dataframe(table,hide_index=True,column_config={c:st.column_config.NumberColumn(format='%.1f' if '(%)' in c else '%.0f') for c in table if c!='代碼'})
         if not events.empty:
             events['代碼']=events['代碼'].map(label)
-            st.dataframe(events,hide_index=True,column_config={'每單位配息（元）':st.column_config.NumberColumn(format='%.4f', help='Yahoo 分割調整單位的每單位配息，保留四位小數避免小額配息被四捨五入成零。'),'估計除息金額':st.column_config.NumberColumn(format='%.0f')})
+            st.dataframe(events,hide_index=True,column_config={'當次配息殖利率 (%)':st.column_config.NumberColumn(format='%.1f%%', help='當次每單位配息 ÷ 除息前一筆交易日收盤價 × 100%，未年化；前日價格無效時留空。'),'每單位配息（元）':st.column_config.NumberColumn(format='%.4f', help='Yahoo 分割調整單位的每單位配息，保留四位小數避免小額配息被四捨五入成零。'),'估計除息金額':st.column_config.NumberColumn(format='%.0f')})
