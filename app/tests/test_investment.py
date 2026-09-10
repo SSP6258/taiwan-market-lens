@@ -39,3 +39,17 @@ render_investment(p,pd.Series({'A':1.}),AMOUNT,str,'還原價格')
         assert filled.metric[0].value=="+10.0%"
         assert filled.metric[2].value=='NT$ 1,100'
         fetch.assert_not_called()
+
+
+def test_monthly_weights_drift_and_actual_month_end():
+    from investment import monthly_weights
+    dates = pd.to_datetime(['2025-01-15','2025-01-31','2025-02-10'])
+    prices = pd.DataFrame({'A':[100.,200.,300.], 'B':[100.,100.,100.], 'C':[10.,20.,30.]}, index=dates)
+    result = monthly_weights(prices, pd.Series({'A':.5,'B':.5,'C':0.}))
+    assert result.groupby('月份')['占比'].sum().tolist() == pytest.approx([1.,1.])
+    assert result.loc[result['代碼']=='A','占比'].tolist() == pytest.approx([2/3,.75])
+    assert set(result['日期']) == {'2025/01/31','2025/02/10'}
+    assert result['端點'].all()
+    one = monthly_weights(prices.iloc[:2], pd.Series({'A':.5,'B':.5,'C':0.}))
+    assert len(one) == 3
+    assert one['端點'].all()

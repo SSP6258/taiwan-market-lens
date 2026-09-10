@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-UI_VERSION = 9
+UI_VERSION = 11
 
 
 @st.cache_data(ttl=3600, max_entries=256, show_spinner=False)
@@ -57,6 +57,46 @@ def monthly_distributions(events, symbols, first, last):
     result['順序'] = result['代碼'].map({s:i for i,s in enumerate(symbols)})
     return result
 
+def monthly_weights(segment, weights):
+    """Sample actual last trading date in each month, preserving buy-and-hold drift."""
+    values = segment.div(segment.iloc[0]).mul(weights, axis=1)
+    shares = values.div(values.sum(axis=1), axis=0)
+    samples = shares.groupby(shares.index.to_period('M')).tail(1)
+    rows = []
+    for date, row in samples.iterrows():
+        bottom = 0.
+        for order, symbol in enumerate(weights.index):
+            share = float(row[symbol])
+            rows.append({'月份': date.strftime('%Y-%m'), '日期': date.strftime('%Y/%m/%d'),
+                         '代碼': symbol, '占比': share, '底部': bottom, '頂部': bottom + share,
+                         '中央': bottom + share / 2, '順序': order,
+                         '端點': date in (samples.index[0], samples.index[-1])})
+            bottom += share
+    return pd.DataFrame(rows)
+
+
+def render_weight_tracking(segment, weights, label, basis):
+    data = monthly_weights(segment, weights)
+    data['標的'] = data['代碼'].map(label)
+    data['數字'] = data['占比'].map(lambda v: f'{v:.1%}')
+    palette = ['#3B9EFF','#FF922B','#D0A2FF','#FFE14A','#FF5263','#35E0CE','#C0ED55','#FF80CB','#F5F7FA','#BCA383','#90A4C2','#00C853']
+    with st.container(border=True):
+        st.subheader('占比追蹤｜不再平衡後的配置變化')
+        st.caption('每月最後一個有效交易日取樣；最後一月截至試算期末。首尾月份標示占比，合計為 100%。首月為月末占比，可能與起始配置不同。')
+        st.caption(f'{segment.index[0]:%Y/%m/%d} — {segment.index[-1]:%Y/%m/%d} · {basis} · 還原價格模式為含配息調整的價值占比，非實際持股市值占比。')
+        tooltip = ['日期:N','標的:N',alt.Tooltip('占比:Q',format='.1%')]
+        base = alt.Chart(data).encode(x=alt.X('月份:N',sort=sorted(data['月份'].unique()),title=None,axis=alt.Axis(labelAngle=-45)))
+        bars = base.mark_bar().encode(
+            y=alt.Y('頂部:Q',title='組合占比',scale=alt.Scale(domain=[0,1]),axis=alt.Axis(format='.0%')),
+            y2='底部:Q', color=alt.Color('標的:N',scale=alt.Scale(domain=[label(s) for s in weights.index],range=palette[:len(weights)]),legend=alt.Legend(orient='bottom',columns=1,labelLimit=350)),tooltip=tooltip)
+        numbers = base.transform_filter('datum.端點 && datum.占比 > 0').mark_text(color='#101828',fontWeight='bold',fontSize=11).encode(y=alt.Y('中央:Q',title='組合占比'),text='數字:N',tooltip=tooltip)
+        st.altair_chart((bars + numbers).properties(height=360),width='stretch')
+        with st.expander('查看每月占比數字（含小額配置）'):
+            grid = data.pivot(index='月份',columns='標的',values='占比')
+            st.dataframe(grid.style.format('{:.1%}'),width='stretch')
+
+
+@st.fragment
 def render_investment(prices, weights, amount, label, basis):
     if amount is None or amount <= 0:
         return
@@ -85,6 +125,7 @@ def render_investment(prices, weights, amount, label, basis):
         st.caption(f'最大高點至低點金額差：NT$ {(value.cummax()-value).max():,.0f}。還原價格試算不再另加配息。')
         allocations=pd.DataFrame({'標的':[label(s) for s in weights.index],'比重 (%)':weights.values*100,'投入金額':weights.values*amount})
         st.dataframe(allocations,hide_index=True,column_config={'比重 (%)':st.column_config.NumberColumn(format='%.1f'),'投入金額':st.column_config.NumberColumn(format='%.0f')})
+        render_weight_tracking(segment, weights, label, basis)
         if not basis.startswith('還原'):
             st.caption('目前採收盤價，此報酬率不含現金配息；含息結果請查看配息子分頁。')
     with dividend_tab:

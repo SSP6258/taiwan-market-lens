@@ -267,7 +267,7 @@ if investment_tab.open:
         else:
             import importlib
             import investment
-            if getattr(investment, "UI_VERSION", 0) < 9:
+            if getattr(investment, "UI_VERSION", 0) < 11:
                 importlib.invalidate_caches()
                 importlib.reload(investment)
             investment.render_investment(prices, weights, amount, label, basis)
