@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 560" role="img" aria-label="選股與權重經過行情快取與日期驗證，分成百分比分析、金額試算及獨立現金配息計算">
+<style>text{font-family: sans-serif;fill:#e2e8f0;text-anchor:middle;font-size:18px}rect{fill:#1e293b;stroke:#35cdbf;rx:12}path{stroke:#94a3b8;stroke-width:2;fill:none}</style>
+<rect x="150" y="10" width="420" height="60"/><text x="360" y="46">選股・日期・價格基準・起始比重</text>
+<path d="M360 70V100"/><rect x="150" y="100" width="420" height="65"/><text x="360" y="139">Yahoo 日線 → 1 小時快取 → 日期驗證</text>
+<path d="M360 165V195H120V225 M360 195V225 M360 195H600V225"/>
+<rect x="10" y="225" width="220" height="85"/><text x="120" y="260">百分比分析</text><text x="120" y="289">走勢・相關性・Beta</text>
+<rect x="250" y="225" width="220" height="85"/><text x="360" y="260">有填投入金額</text><text x="360" y="289">價值曲線・損益</text>
+<rect x="490" y="225" width="220" height="85"/><text x="600" y="260">開啟配息試算</text><text x="600" y="289">額外取得除息事件</text>
+<path d="M600 310V345"/><rect x="420" y="345" width="290" height="85"/><text x="565" y="380">Close ＋ 配息（不再投入）</text><text x="565" y="408">含息損益・期間配息率</text>
+<rect x="10" y="460" width="700" height="75"/><text x="360" y="492">還原價格價值 ≠ 現金配息帳戶</text><text x="360" y="519">兩條計算路徑獨立，避免配息重複計入</text></svg>

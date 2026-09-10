@@ -11,7 +11,7 @@
 ```powershell
 python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -r requirements.txt
-./.venv/Scripts/python.exe -m streamlit run streamlit_app.py
+./.venv/Scripts/python.exe -m streamlit run app/streamlit_app.py
 ```
 
 安裝後直接雙擊 `run.bat`，會開啟瀏覽器與服務視窗。瀏覽 http://localhost:8501 。保留服務視窗，停止服務按 Ctrl+C。重複執行會重用已啟動的 Dashboard；若 8501 被其他服務占用，會自動在 8502–8510 選擇可用埠，實際網址會印在視窗。也可使用 `start.ps1`。
@@ -68,3 +68,25 @@ python -m venv .venv
 Beta 分析由 `beta_analysis.py` 提供，部署時需一併上傳；支援 0050、加權指數與其他基準，詳見 App 說明分頁。
 
 共用配置由 `allocation.py` 提供，部署需包含此檔。侧邊欄起始比重供分散效果及組合 Beta 共用，選股更換時恢復等權重，行情失敗時不自動重配。
+
+## 專案目錄
+
+```text
+run.bat / start.ps1       本地啟動入口
+requirements.txt         雲端與本地套件
+pytest.ini               測試設定
+.streamlit/              主題與服務設定
+app/                     所有 Python 程式與應用資源
+  streamlit_app.py        Streamlit Cloud 入口
+  launch.py              本地啟動器
+  tests/                 測試
+  data/                  中文名錄備援
+  vendor/                圖表引擎與授權
+  static/                本地服務識別
+  about.md / data_flow.svg 說明與流程圖
+  local_defaults.json    本機設定，不上傳 Git
+```
+
+部署應提交整個 app 目錄（遵守 .gitignore），以及根目錄 requirements.txt、.streamlit/config.toml。根目錄 streamlit_app.py 為相容入口，載入 app/ 內的實際程式；既有 Streamlit Cloud 入口設定保持不變。根目錄執行 pytest 會自動找到 app/tests。
+
+根目錄僅保留輕量 Python 雲端入口，其餘功能程式全部在 app/；本地啟動器仍直接執行 app/streamlit_app.py。

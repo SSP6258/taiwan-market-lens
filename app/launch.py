@@ -9,7 +9,7 @@ import time
 from urllib.request import urlopen
 import webbrowser
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 APP_ID = "taiwan-market-lens-0908"
 
 
@@ -60,7 +60,7 @@ def main():
     if port != 8501:
         print(f"Port 8501 is occupied by another service; using {port}.", flush=True)
     print("Keep this window open. Press Ctrl+C to stop.", flush=True)
-    process = subprocess.Popen([sys.executable, "-m", "streamlit", "run", "streamlit_app.py",
+    process = subprocess.Popen([sys.executable, "-m", "streamlit", "run", "app/streamlit_app.py",
                                 "--server.address", "127.0.0.1", "--server.port", str(port),
                                 "--server.headless", "true"], cwd=ROOT)
     try:
