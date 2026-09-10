@@ -36,3 +36,32 @@ render_beta(p,str,list(p),p.index[0].date(),p.index[-1].date(),'收盤價',w,n)
     assert app.session_state.applied_weights == [1.,0.]
     app.button(key='reset_weights').click().run(timeout=30)
     assert app.session_state.applied_weights == [.5,.5]
+
+
+def test_presets_switch_symbols_weights_and_amount():
+    app = AppTest.from_string("""
+import streamlit as st
+from allocation import preset_picker, allocation_picker
+preset_picker()
+st.multiselect('標的', st.session_state.symbol_options, key='chosen_named_symbols')
+w, name = allocation_picker(st.session_state.chosen_named_symbols, str)
+st.number_input('金額', key='investment_amount_wan')
+""").run()
+    assert not app.exception
+    assert app.session_state.chosen_named_symbols == ['0050.TW', '2330.TW', '2454.TW']
+    assert app.session_state.applied_weights == pytest.approx([1/3]*3)
+    assert app.session_state.investment_amount_wan == 1000
+    app.selectbox(key='portfolio_preset').select('退休').run()
+    assert not app.exception
+    assert app.session_state.chosen_named_symbols == ['009816.TW', '00662.TW', '00984B.TWO', '00685L.TW']
+    assert app.session_state.applied_weights == [.2, .2, .5, .1]
+    assert app.session_state.investment_amount_wan == 3000
+    app.number_input(key='investment_amount_wan').set_value(42).run()
+    assert app.session_state.investment_amount_wan == 42
+    app.button(key='reapply_preset').click().run()
+    assert not app.exception
+    assert app.session_state.investment_amount_wan == 3000
+    app.selectbox(key='portfolio_preset').select('衝刺').run()
+    assert not app.exception
+    assert app.session_state.applied_weights == pytest.approx([1/3]*3)
+    assert app.session_state.investment_amount_wan == 1000

@@ -91,6 +91,8 @@ with comparison_tab:
 
     with st.sidebar:
         st.subheader(":material/tune: 比較設定")
+        from allocation import preset_picker
+        preset_picker()
         selected = st.multiselect("股票與 ETF", st.session_state.symbol_options, key="chosen_named_symbols", format_func=label, max_selections=MAX_SYMBOLS, placeholder="搜尋代碼或名稱", on_change=clear_add_notice)
         st.caption(f"已選 {len(selected)}/{MAX_SYMBOLS} 檔 · 尚可新增 {MAX_SYMBOLS - len(selected)} 檔")
         if len(selected) >= MAX_SYMBOLS:
