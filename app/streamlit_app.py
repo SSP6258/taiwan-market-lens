@@ -15,7 +15,7 @@ st.caption("TAIWAN MARKET LENS  /  台股・ETF 研究工具")
 st.title("台股比較室")
 st.write("同一起點，看見不同走勢。比較股票與 ETF 的歷史報酬和風險。")
 
-comparison_tab, correlation_tab, beta_tab, investment_tab, about_tab = st.tabs(["行情比較", "相關性與分散效果", "Beta 分析", "投資報酬", "關於與使用說明"], on_change="rerun", key="analysis_tabs")
+comparison_tab, correlation_tab, indicators_tab, investment_tab, about_tab = st.tabs(["行情比較", "相關性與分散效果", "指標分析", "投資報酬", "關於與使用說明"], on_change="rerun", key="analysis_tabs")
 with about_tab:
     st.markdown(Path(__file__).with_name("about.md").read_text(encoding="utf-8"))
     st.subheader("資料處理流程")
@@ -113,7 +113,11 @@ with comparison_tab:
         st.divider()
         period = st.segmented_control("比較區間", ["3月", "6月", "1年", "3年", "5年", "自訂"], default="1年")
         if period == "自訂":
-            dates = st.date_input("起訖日期", value=((pd.Timestamp(today) - pd.DateOffset(years=1)).date(), today), min_value=date(2000, 1, 1), max_value=today)
+            custom_start = st.date_input("開始日期", value=(pd.Timestamp(today) - pd.DateOffset(years=1)).date(), min_value=date(2000, 1, 1), max_value=today, format="YYYY/MM/DD", key="custom_start_date")
+            custom_end = st.date_input("結束日期", value=today, min_value=date(2000, 1, 1), max_value=today, format="YYYY/MM/DD", key="custom_end_date")
+            dates = (custom_start, custom_end)
+            if custom_start >= custom_end:
+                st.warning("結束日期須晚於開始日期，請調整日期。")
         else:
             months = {"3月": 3, "6月": 6, "1年": 12, "3年": 36, "5年": 60}.get(period, 12)
             dates = ((pd.Timestamp(today) - pd.DateOffset(months=months)).date(), today)
@@ -253,11 +257,21 @@ if correlation_tab.open:
         render_analysis = load_renderer("correlation", "render_analysis", "weights")
         render_analysis(prices, label, basis, weights, portfolio_name)
 
-if beta_tab.open:
-    with beta_tab:
-        from module_compat import load_renderer
-        render_beta = load_renderer("beta_analysis", "render_beta", "weights")
-        render_beta(prices, label, display_names, start, end, basis, weights, portfolio_name)
+if indicators_tab.open:
+    with indicators_tab:
+        beta_tab, sharpe_tab = st.tabs(["Beta 分析", "夏普分析"], on_change="rerun", key="indicator_tabs")
+        if beta_tab.open:
+            with beta_tab:
+                from module_compat import load_renderer
+                render_beta = load_renderer("beta_analysis", "render_beta", "weights")
+                render_beta(prices, label, display_names, start, end, basis, weights, portfolio_name)
+        if sharpe_tab.open:
+            with sharpe_tab:
+                import importlib
+                import sharpe_analysis
+                if getattr(sharpe_analysis, "UI_VERSION", 0) < 2:
+                    importlib.reload(sharpe_analysis)
+                sharpe_analysis.render_sharpe(prices, label, basis, weights, portfolio_name)
 
 if investment_tab.open:
     with investment_tab:
