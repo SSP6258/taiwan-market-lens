@@ -356,6 +356,14 @@ def build_payload(lines, pairs, basis, daily, segment, weights, facts=None):
     return json.dumps(body, ensure_ascii=False, sort_keys=True)
 
 
+def portable_input(prompt, payload):
+    """Instruction and numbers as one pastable block, for readers who would rather run
+    this through their own chat model. Verbatim: the same two strings the request carries."""
+    return (prompt
+            + '\n\n---\n\n以下是待解讀的統計數字，JSON 由程式算出，請勿自行計算：\n\n'
+            + '```json\n' + payload + '\n```')
+
+
 def setting(name):
     if os.environ.get(name):
         return os.environ[name]
@@ -471,7 +479,7 @@ def _reset_prompt():
     st.session_state['system_prompt_draft'] = SYSTEM_PROMPT
 
 
-def disclosure(payload, model):
+def disclosure(payload, model, expand=None):
     """Show what the model is told and what it is given, and let the reader change the former."""
     st.caption('🤗 由 Hugging Face Inference Providers 提供的開源權重模型'
                + (f'　·　目前使用 `{model}`' if model else '　·　**尚未設定模型**'))
@@ -499,7 +507,24 @@ def disclosure(payload, model):
         st.caption('**數字**｜AI 只看得到這些，不含帳戶或個人資料。')
         st.json(payload)
         st.caption('點擊按鈕時會再補上 Beta 與配息資料，兩者需要另外向資料來源查詢。')
+        _portable(prompt, payload, expand)
     return prompt
+
+
+def _portable(prompt, payload, expand):
+    """The base payload has no Beta or distributions; those cost a network call, so the
+    complete copy is built on request rather than on every render of the tab."""
+    st.caption('**帶著走**｜複製下列內容貼到你慣用的 AI，就能用同一份數字得到另一份解讀。')
+    key = hashlib.sha256(payload.encode()).hexdigest()
+    ready = st.session_state.get('portable_body')
+    if expand is not None and (ready is None or ready['key'] != key):
+        if not st.button('取得完整輸入（含 Beta 與配息）', key='build_portable', width='stretch'):
+            return
+        with st.spinner('正在取得 Beta 與配息資料…'):
+            ready = {'key': key, 'text': expand()}
+        st.session_state['portable_body'] = ready
+    st.code(portable_input(prompt, ready['text'] if ready else payload),
+            language=None, wrap_lines=True, height=300)
 
 
 @st.fragment
@@ -508,7 +533,7 @@ def ai_panel(payload, expand=None):
     It runs on the button press so opening the tab stays instant."""
     model, token = setting('HF_MODEL'), setting('HF_TOKEN')
     # Disclosed before the token check: what would be sent is worth seeing either way.
-    prompt = disclosure(payload, model)
+    prompt = disclosure(payload, model, expand)
     st.caption("選用功能：點擊後將上述內容送至 Hugging Face 推論服務；不傳送帳戶或持倉資料。")
     if not model or not token:
         st.button('AI 深入解讀', disabled=True)

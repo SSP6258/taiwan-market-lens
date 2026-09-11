@@ -7,6 +7,7 @@ from insights import (MAX_OUTPUT_TOKENS, READ_TIMEOUT_SECONDS, ModelOutputError,
                       monthly_pattern,
                       sharpe_facts,
                       build_payload, conclusions, correlation_pairs, model_note,
+                      portable_input,
                       request_insight, stream_insight)
 
 
@@ -326,3 +327,18 @@ def test_success_path_untouched_by_the_status_check():
     response.json.return_value = {'choices': [{'message': {'content': '正常'}}]}
     with patch('insights.requests.post', return_value=response):
         assert request_insight('{}', 'm', 't') == '正常'
+
+
+def test_portable_input_carries_both_halves_unchanged():
+    index = pd.date_range('2026-01-01', periods=4)
+    payload = build_payload(['結論一'], [], '還原價格',
+                            pd.DataFrame({'a':[.01]*4}, index=index),
+                            pd.DataFrame({'a':[1.,2.,3.,4.]}, index=index),
+                            pd.Series({'a':1.}))
+    text = portable_input('自訂指示', payload)
+    # A reader who edited the instruction must get their version, not the shipped default.
+    assert '自訂指示' in text
+    assert payload in text
+    # Fenced, so the receiving model can tell the instruction from the data.
+    fenced = text.split('```json\n')[1].split('\n```')[0]
+    assert json.loads(fenced)['basis'] == '還原價格'
