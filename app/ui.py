@@ -18,3 +18,26 @@ def period_banner(title, detail):
     """
     st.html(f'<div style="{_BANNER}"><strong>{escape(str(title))}</strong>'
             f'<div style="margin-top:6px">{escape(str(detail))}</div></div>')
+
+
+def wan(value):
+    """The same figure read in 萬, the unit these amounts are actually spoken in.
+
+    Nothing under one 萬: "0.1 萬" is harder to read than the full number it would sit
+    beneath, which is the opposite of the point. One decimal below a hundred 萬, where
+    rounding to whole 萬 would throw away a visible part of the figure.
+    """
+    scaled = value / 10000
+    if abs(scaled) < 1:
+        return None
+    return f'{scaled:,.1f} 萬' if abs(scaled) < 100 else f'{scaled:,.0f} 萬'
+
+
+def money_metric(card, title, value, **kwargs):
+    """A NT$ card carrying its 萬 reading underneath.
+
+    `delta` is the only second line a metric offers, so the arrow and colour are turned
+    off to keep it reading as a caption rather than as a change against an earlier figure.
+    """
+    card.metric(title, f'NT$ {value:,.0f}', delta=wan(value),
+                delta_color='off', delta_arrow='off', **kwargs)

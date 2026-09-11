@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import yfinance as yf
+from ui import money_metric, wan
 
 UI_VERSION = 11
 
@@ -118,10 +119,13 @@ def render_investment(prices, weights, amount, label, basis):
             cards = st.columns(4, wrap=False)
             cards[0].metric('區間報酬率', f'{(value.iloc[-1]/amount-1)*100:+.1f}%', border=True)
             for card,title,v in zip(cards[1:],['初始投入','期末試算價值','區間損益'],[amount,value.iloc[-1],value.iloc[-1]-amount]):
-                card.metric(title,f'NT$ {v:,.0f}', border=True)
+                money_metric(card,title,v, border=True)
         st.html('<style>.st-key-investment_summary [data-testid="stColumn"]{min-width:250px!important}.st-key-investment_summary [data-testid="stMetricValue"]{font-size:clamp(20px,2vw,30px)}</style>')
         st.line_chart(value.rename('資產價值（元）'),color='#35CDBF')
-        st.caption(f'最大高點至低點金額差：NT$ {(value.cummax()-value).max():,.0f}。還原價格試算不再另加配息。')
+        gap = float((value.cummax()-value).max())
+        reading = wan(gap)
+        st.caption(f'最大高點至低點金額差：NT$ {gap:,.0f}'
+                   + (f'（{reading}）' if reading else '') + '。還原價格試算不再另加配息。')
         allocations=pd.DataFrame({'標的':[label(s) for s in weights.index],'比重 (%)':weights.values*100,'投入金額':weights.values*amount})
         st.dataframe(allocations,hide_index=True,column_config={'比重 (%)':st.column_config.NumberColumn(format='%.1f'),'投入金額':st.column_config.NumberColumn(format='%.0f')})
         render_weight_tracking(segment, weights, label, basis)
@@ -144,7 +148,7 @@ def render_investment(prices, weights, amount, label, basis):
             return
         income=table['期間除息金額'].sum()
         for card,title,v in zip(st.columns(3),['期間除息金額','期末市值＋除息金額','含息損益'],[income,table['期末市值'].sum()+income,table['含息損益'].sum()]):
-            card.metric(title,f'NT$ {v:,.0f}')
+            money_metric(card,title,v)
         st.write(f'組合期間成本配息率：{income/amount*100:.1f}%（未年化）')
         st.caption('期末近12月殖利率＝截至試算期末前12個月每股配息÷期末價格，不是今日殖利率。歷史覆蓋不足一年時留空。未記錄配息不保證來源完整。')
         st.caption('使用 Yahoo 分割調整後的價格／配息單位，不重複乘分割倍數；不代表實際買入股數。起始日收盤買入，排除當日除息；配息不再投入。')
@@ -153,8 +157,10 @@ def render_investment(prices, weights, amount, label, basis):
         st.caption('按除息月份估算，非實際入帳現金流。用於觀察歷史分布；生活費安排仍需確認付款日期，未來配息不保證。')
         monthly = monthly_distributions(events, list(weights.index), first, last)
         totals = monthly.groupby('月份', sort=True)['金額'].sum()
-        for card, title, v in zip(st.columns(3), ['涵蓋月份平均','最低月份','零配息月份'], [f'NT$ {totals.mean():,.0f}', f'NT$ {totals.min():,.0f}', f'{int((totals==0).sum())} 個月']):
-            card.metric(title,v)
+        months = st.columns(3)
+        money_metric(months[0], '涵蓋月份平均', float(totals.mean()))
+        money_metric(months[1], '最低月份', float(totals.min()))
+        months[2].metric('零配息月份', f'{int((totals==0).sum())} 個月')
         st.caption('平均包含零配息及首尾不完整月份，不代表每月固定可領金額。')
         monthly['標的'] = monthly['代碼'].map(label)
         monthly['月合計'] = monthly['月份'].map(totals)

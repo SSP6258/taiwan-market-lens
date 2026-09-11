@@ -53,3 +53,19 @@ def test_monthly_weights_drift_and_actual_month_end():
     one = monthly_weights(prices.iloc[:2], pd.Series({'A':.5,'B':.5,'C':0.}))
     assert len(one) == 3
     assert one['端點'].all()
+
+
+def test_money_cards_carry_the_wan_reading():
+    """Eight digits are hard to size up at a glance; the 萬 line under the value is
+    what a reader actually compares against the amount they typed in the sidebar."""
+    script = '''import pandas as pd
+from investment import render_investment
+p=pd.DataFrame({'A':[100.,105.,110.]},index=pd.bdate_range('2025-01-01',periods=3))
+render_investment(p,pd.Series({'A':1.}),30000000.,str,'還原價格')
+'''
+    app = AppTest.from_string(script).run(timeout=15)
+    assert not app.exception
+    assert app.metric[2].value == 'NT$ 33,000,000'
+    assert app.metric[2].delta == '3,300 萬'
+    # The return percentage is not an amount and must not grow a 萬 line.
+    assert not app.metric[0].delta
