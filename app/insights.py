@@ -7,7 +7,10 @@ import pandas as pd
 import requests
 import streamlit as st
 
-MAX_OUTPUT_TOKENS = 1100
+# Measured against the five-section prompt with Beta and distributions in the payload:
+# the model settles at about 1100 output tokens, so a 1100 cap truncated roughly every
+# other answer. Billing is per token produced, not per cap, so the headroom is free.
+MAX_OUTPUT_TOKENS = 2400
 # Provider latency varies widely; a ':cheapest' route measured 40s where ':fastest' took 9s.
 READ_TIMEOUT_SECONDS = 90
 
