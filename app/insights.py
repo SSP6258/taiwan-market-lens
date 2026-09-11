@@ -447,10 +447,13 @@ def stream_insight(payload, model, token, prompt=None):
 
 # What we measured ourselves, not vendor claims. Keyed without the routing suffix.
 MODEL_NOTES = {
-    'zai-org/GLM-4.7-Flash': '智譜 AI（Z.ai）的開源模型，Flash 版本主打快速回應。'
-                             '本專案實測繁體中文表達穩定，未出現簡體用詞或英文夾雜，單次約 9–20 秒。',
-    'Qwen/Qwen3.5-35B-A3B': '阿里巴巴通義千問系列，MoE 架構。速度約快 4 倍，'
-                            '但本專案實測會出現簡體字（「负相關」）、夾雜英文並捏造輸入沒有的事實，因此未採用。',
+    'zai-org/GLM-4.7': '智譜 AI（Z.ai）的開源模型。本專案實測繁體中文表達穩定、'
+                       '未出現簡體用詞或英文夾雜，四段解讀單次約 4–25 秒。目前採用。',
+    'zai-org/GLM-4.7-Flash': '同系列的輕量版。實測 :fastest 後綴會忽略關閉思考的設定、'
+                             '把額度全用在推理而回傳空白；:cheapest 雖有輸出但需 140 秒'
+                             '且不遵守分段格式。**不建議使用。**',
+    'Qwen/Qwen3.5-35B-A3B': '阿里巴巴通義千問系列，MoE 架構。可正常產出四段解讀，'
+                            '但早期實測曾出現簡體字（「负相關」）、夾雜英文並捏造輸入沒有的事實。',
     'deepseek-ai/DeepSeek-V3': 'DeepSeek 開源模型，中文與推理能力佳，但用詞偏簡體習慣，需在指示中特別約束。',
 }
 
