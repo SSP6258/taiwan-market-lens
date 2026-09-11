@@ -16,9 +16,10 @@
 
 **最後更新：2026-09-11**
 
-- 分支：`feature/ai-allocation-advisor`，基底 `99b5a42`（origin/main）
-- 已 commit `4f8029d`（10 檔、+823/-33），**工作區乾淨、尚未 push**
-- 要更新雲端正式站需合回 `main` 再 push（App settings 沒有 branch 欄位）
+- 分支：`main`，已與 `origin/main` 同步於 `3c92518`
+- **已部署**：8 個 commit 於 2026-09-11 合併並推送，Streamlit Cloud 自動重新部署
+- 雲端 Secrets（`HF_TOKEN` / `HF_MODEL`）已由使用者於 App settings 設定
+- 開發分支 `feature/ai-allocation-advisor` 已 fast-forward 併入，可刪
 - 測試：**64 passed / 0 failed**（全綠）
 - 本機 App：`http://127.0.0.1:8501`，AI 分頁串流輸出，首字約 1–10 秒、全文約 9–20 秒
 
