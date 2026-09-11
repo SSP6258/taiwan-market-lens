@@ -3,6 +3,7 @@ from unittest.mock import patch, Mock
 import pandas as pd
 import pytest
 from insights import (MAX_OUTPUT_TOKENS, READ_TIMEOUT_SECONDS, ModelOutputError, allocation_facts, market_and_income_facts,
+                      monthly_pattern,
                       sharpe_facts,
                       build_payload, conclusions, correlation_pairs, model_note,
                       request_insight, stream_insight)
@@ -234,3 +235,45 @@ def test_model_note_ignores_the_routing_suffix():
     assert model_note('zai-org/GLM-4.7-Flash:fastest') == model_note('zai-org/GLM-4.7-Flash')
     assert model_note('zai-org/GLM-4.7-Flash:cheapest') is not None
     assert model_note('some/unknown-model') is None
+
+
+def _month_totals(*months):
+    return pd.Series({m: 1.0 for m in months})
+
+
+def test_partial_first_and_last_months_are_declared_not_counted_as_gaps():
+    """A window starting on the 23rd leaves that month looking empty; say it is partial."""
+    events = pd.DataFrame({'除息日': ['2026/02/03', '2026/03/12']})
+    totals = _month_totals('2026-01', '2026-02', '2026-03')
+    per_month, partial, whole = monthly_pattern(
+        events, totals, pd.Timestamp('2026-01-23'), pd.Timestamp('2026-03-09'))
+    assert partial == {'2026-01': 9, '2026-03': 9}
+    assert whole == ['2026-02']
+    assert per_month == {'2026-01': 0, '2026-02': 1, '2026-03': 1}
+
+
+def test_a_drifting_ex_date_shows_as_two_then_none():
+    """07/02 and 07/31 double July and empty August; the counts must make that visible."""
+    events = pd.DataFrame({'除息日': ['2026/07/02', '2026/07/31', '2026/09/02']})
+    totals = _month_totals('2026-07', '2026-08', '2026-09')
+    per_month, _, _ = monthly_pattern(
+        events, totals, pd.Timestamp('2026-07-01'), pd.Timestamp('2026-09-30'))
+    assert per_month == {'2026-07': 2, '2026-08': 0, '2026-09': 1}
+    assert sum(per_month.values()) == 3
+
+
+def test_whole_months_have_no_partial_entry():
+    events = pd.DataFrame({'除息日': ['2026-05-04']})
+    totals = _month_totals('2026-05')
+    _, partial, whole = monthly_pattern(
+        events, totals, pd.Timestamp('2026-05-01'), pd.Timestamp('2026-05-31'))
+    assert partial == {}
+    assert whole == ['2026-05']
+
+
+def test_no_events_still_reports_every_month():
+    per_month, _, whole = monthly_pattern(
+        pd.DataFrame({'除息日': []}), _month_totals('2026-01', '2026-02'),
+        pd.Timestamp('2026-01-01'), pd.Timestamp('2026-02-28'))
+    assert per_month == {'2026-01': 0, '2026-02': 0}
+    assert whole == ['2026-01', '2026-02']
