@@ -109,8 +109,38 @@ TRUNCATION_NOTE = '''
 
 **（輸出已達長度上限，內容可能未完整。）**'''
 
-class ModelOutputError(ValueError):
+class ReadableError(Exception):
+    """A failure we can name precisely. The message is shown to the reader as-is,
+    because 'try again later' is wrong advice for most of them."""
+
+
+class ModelOutputError(ReadableError, ValueError):
     """The call succeeded but the model produced no usable text, with a reason to show."""
+
+
+class ServiceError(ReadableError):
+    """The service refused the call for a reason the reader can act on."""
+
+
+# Retrying only helps for the last of these, so each carries its own wording.
+STATUS_REASONS = {
+    401: '金鑰無效或已撤銷。請在 Hugging Face 重新產生 token 並更新 HF_TOKEN。',
+    403: '金鑰權限不足。產生 token 時需勾選「Make calls to Inference Providers」。',
+    402: ('Hugging Face 的每月免費額度已用完。額度於每月初重置；'
+          '要立即恢復需購買 credits 或升級 PRO（每月 $2 額度）。'
+          '用量與帳單：huggingface.co/settings/billing'),
+    429: '呼叫過於頻繁，供應商暫時限流。稍等一兩分鐘再試。',
+}
+
+
+def check_response(response):
+    """Turn a refusal into an explanation instead of a generic network failure."""
+    reason = STATUS_REASONS.get(response.status_code)
+    if reason:
+        raise ServiceError(reason)
+    if response.status_code >= 500:
+        raise ServiceError(f'推論服務暫時異常（HTTP {response.status_code}），稍後重試。')
+    response.raise_for_status()
 
 
 def conclusions(volatility, drawdown, weights=None, portfolio_name='等權重組合'):
@@ -369,7 +399,7 @@ def request_insight(payload, model, token, prompt=None):
     response = requests.post(ROUTER_URL, headers={'Authorization': f'Bearer {token}'},
                              timeout=(5, READ_TIMEOUT_SECONDS),
                              json=_body(payload, model, False, prompt or SYSTEM_PROMPT))
-    response.raise_for_status()
+    check_response(response)
     choice = response.json()['choices'][0]
     message = choice['message']
     result = message.get('content') or ''
@@ -391,7 +421,7 @@ def stream_insight(payload, model, token, prompt=None):
                              timeout=(5, READ_TIMEOUT_SECONDS),
                              json=_body(payload, model, True, prompt or SYSTEM_PROMPT),
                              stream=True)
-    response.raise_for_status()
+    check_response(response)
     text, reasoning, finish_reason = '', '', None
     for line in response.iter_lines():
         if not line or not line.startswith(b'data: '):
@@ -496,7 +526,7 @@ def ai_panel(payload, expand=None):
                 cache.pop(next(iter(cache)))
             cache[key] = {'text': text, 'model': model, 'custom': prompt != SYSTEM_PROMPT}
             entry = cache[key]  # Already on screen from the stream; do not draw it twice.
-        except ModelOutputError as exc:
+        except ReadableError as exc:
             st.warning(str(exc))
         except (requests.RequestException, ValueError, KeyError, IndexError):
             st.warning('AI 暫時無法回應，請稍後重試。圖表與數據解讀不受影響。')
@@ -504,6 +534,11 @@ def ai_panel(payload, expand=None):
         entry = cache[key]
         st.markdown(entry['text'])
     if entry:
+        # st.code carries Streamlit's own copy button; the Markdown source is what you
+        # want on the clipboard anyway, since headings and bold survive the paste.
+        with st.popover('複製原文', icon=':material/content_copy:'):
+            st.caption('Markdown 原文，貼到支援的編輯器仍保有標題與粗體。')
+            st.code(entry['text'], language=None, wrap_lines=True, height=300)
         custom = '　·　**使用自訂指示**' if entry.get('custom') else ''
         st.caption(f"🤗 由 `{entry['model']}` 產生{custom}。"
                    'AI 輔助解讀，請以原始統計為準；相同指示與摘要在本次連線中重用結果。')

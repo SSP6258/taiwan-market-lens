@@ -20,7 +20,7 @@
 - **已部署**：8 個 commit 於 2026-09-11 合併並推送，Streamlit Cloud 自動重新部署
 - 雲端 Secrets（`HF_TOKEN` / `HF_MODEL`）已由使用者於 App settings 設定
 - 開發分支 `feature/ai-allocation-advisor` 已 fast-forward 併入，可刪
-- 測試：**70 passed / 0 failed**（全綠）
+- 測試：**75 passed / 0 failed**（全綠）
 - 本機 App：`http://127.0.0.1:8501`，AI 分頁串流輸出，首字約 1–10 秒、全文約 9–20 秒
 
 ## 進行中
@@ -174,6 +174,35 @@ system prompt。**評估後決定不做。**
 ---
 
 ## 變更紀錄
+
+### 2026-09-11（第十五次）—— 額度用完與推理模式失控：把失敗講清楚
+
+使用者回報畫面出現「模型把 2400 個輸出額度全部用在推理，沒有產生正文」。查證後
+發現**兩個獨立問題同時發生**，而且都不是程式改壞（當時測試 71 passed 全綠）：
+
+**1. `:fastest` 開始忽略 `enable_thinking: False`。** 連測四次全部
+`正文 0 / 推理 517–662 / finish=length`。同一個參數在兩天前是有效的 ——
+**供應商端行為變了**。後綴 `:fastest` 只保證挑最快的供應商，不保證那家支援這個參數。
+另測 `reasoning_effort: none` 也無效。當時可用的是 `zai-org/GLM-4.7`（非 Flash）
+與 `Qwen/Qwen3.5-35B-A3B`。
+
+**2. 每月免費額度（$0.10）用完，回 HTTP 402。** 主要是這一天大量測試燒掉的：
+prompt 調校、模型比較、截斷測量、配息驗證約四五十次，加上 120 檔 ETF 的嵌入測試。
+
+**修掉的真實缺陷**：402 原本被 `raise_for_status()` 變成 `HTTPError`，
+落進通用的 `except requests.RequestException`，畫面顯示「AI 暫時無法回應，**請稍後重試**」。
+**那是錯的建議** —— 額度用完重試一百次也不會好。現在 `check_response()` 把狀態碼
+對應到可行動的說明：401/403 金鑰問題、402 額度用完（含帳單頁）、429 限流、5xx 才叫人重試。
+例外改成 `ReadableError` 基底（`ModelOutputError` 與 `ServiceError` 繼承它），
+`ai_panel` 攔它並原文顯示。
+
+**測試**：新增 4 個（402 不可讀成暫時性失敗、401/403/429 要能區分、5xx 仍建議重試、
+200 不受影響）。既有 11 個測試一度失敗，原因是舊 mock 沒有 `status_code` ——
+**mock 不夠真實，不是程式錯**，補上後全綠。70 → 75 passed。
+
+**環境雷（新）**：git 簽出後工作檔是 CRLF。用 Python 多行字串比對來 patch 時，
+`read_text()` 會統一成 LF 所以仍可匹配，但**在 bash heredoc 裡寫含三引號的 Python**
+字串容易被跳脫吃掉。改用 `chr(34)*3` 與 `chr(10)` 組字串最保險。
 
 ### 2026-09-11（第十四次）—— 「零配息月份」誤導模型說出錯誤結論
 

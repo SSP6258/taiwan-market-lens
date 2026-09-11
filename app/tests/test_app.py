@@ -263,3 +263,25 @@ def test_period_banner_shows_once_and_flags_a_shortened_window():
         banners = [h.body for h in app.get("html") if "FCE4E6" in h.body]
         assert len(banners) == 1
         assert "已自動縮短" not in banners[0], "期間完整時不該出現縮短提示"
+
+
+FAKE_READING = "## 配置結構\n這是**測試用**的解讀文字。\n\n## 風險特徵\n第二段。"
+
+
+def test_generated_reading_is_offered_for_copying():
+    """The rendered Markdown cannot be copied cleanly; st.code carries the copy button."""
+    secrets = {"HF_MODEL": "zai-org/GLM-4.7-Flash:fastest", "HF_TOKEN": "hf_fake"}
+    with patch("market.load_symbol", side_effect=fixture_history):
+        with patch("insights.setting", side_effect=secrets.__getitem__):
+            with patch("insights.stream_insight", return_value=iter([FAKE_READING])):
+                with patch("insights.market_and_income_facts", return_value={}):
+                    app = new_app()
+                    app.session_state["analysis_tabs"] = "AI 深度解讀"
+                    app = app.run(timeout=30)
+                    assert not any(FAKE_READING in c.value for c in app.get("code")), "尚未產生就不該有原文"
+                    generate = next(b for b in app.button if b.label == "AI 深入解讀")
+                    app = generate.click().run(timeout=30)
+                    assert not app.exception
+                    assert any(FAKE_READING in c.value for c in app.get("code")), "產生後應可複製原文"
+                    # The reading still renders as Markdown, not only inside the copy block.
+                    assert any(FAKE_READING in m.value for m in app.markdown)

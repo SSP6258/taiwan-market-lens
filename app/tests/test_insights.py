@@ -2,7 +2,8 @@ import json
 from unittest.mock import patch, Mock
 import pandas as pd
 import pytest
-from insights import (MAX_OUTPUT_TOKENS, READ_TIMEOUT_SECONDS, ModelOutputError, allocation_facts, market_and_income_facts,
+from insights import (MAX_OUTPUT_TOKENS, READ_TIMEOUT_SECONDS, ModelOutputError, ReadableError, ServiceError,
+                      allocation_facts, market_and_income_facts,
                       monthly_pattern,
                       sharpe_facts,
                       build_payload, conclusions, correlation_pairs, model_note,
@@ -17,6 +18,7 @@ def test_conclusion_uses_percentage_points_and_drawdown_direction():
 
 def test_ai_response_and_failure():
     response = Mock()
+    response.status_code = 200
     response.json.return_value = {'choices':[{'message':{'content':'解讀'}}]}
     with patch('insights.requests.post', return_value=response) as post:
         assert request_insight('{}','test-model','test-token') == '解讀'
@@ -31,6 +33,7 @@ def test_ai_response_and_failure():
 def test_reasoning_model_empty_content_names_the_cause():
     """A model that spends its whole budget thinking must not look like a network error."""
     response = Mock()
+    response.status_code = 200
     response.json.return_value = {'choices':[{'message':{'content':'','reasoning_content':'想了很久'}}]}
     with patch('insights.requests.post', return_value=response):
         with pytest.raises(ModelOutputError) as caught:
@@ -42,6 +45,7 @@ def test_reasoning_model_empty_content_names_the_cause():
 
 def test_empty_content_without_reasoning_stays_generic():
     response = Mock()
+    response.status_code = 200
     response.json.return_value = {'choices':[{'message':{'content':''}}]}
     with patch('insights.requests.post', return_value=response):
         with pytest.raises(ValueError) as caught:
@@ -70,6 +74,7 @@ def test_payload_carries_periods_and_weights_without_recomputing():
 
 def test_truncated_answer_is_marked_not_silently_complete():
     response = Mock()
+    response.status_code = 200
     response.json.return_value = {'choices':[{'message':{'content':'講到一半'},'finish_reason':'length'}]}
     with patch('insights.requests.post', return_value=response):
         out = request_insight('{}','m','t')
@@ -79,6 +84,7 @@ def test_truncated_answer_is_marked_not_silently_complete():
 
 def test_complete_answer_has_no_marker():
     response = Mock()
+    response.status_code = 200
     response.json.return_value = {'choices':[{'message':{'content':'完整結論'},'finish_reason':'stop'}]}
     with patch('insights.requests.post', return_value=response):
         assert request_insight('{}','m','t') == '完整結論'
@@ -148,6 +154,7 @@ def _sse(*events):
     """Fake the router's server-sent event stream, terminator included."""
     lines = [b'data: ' + json.dumps(e).encode() for e in events]
     response = Mock()
+    response.status_code = 200
     response.iter_lines.return_value = lines + [b'', b'data: [DONE]']
     return response
 
@@ -182,6 +189,7 @@ def test_stream_of_pure_reasoning_names_the_cause():
 def test_stream_skips_malformed_chunks_without_dying():
     """A truncated or non-JSON frame must not abort a reading that is otherwise fine."""
     response = Mock()
+    response.status_code = 200
     response.iter_lines.return_value = [
         b'data: {"choices":[{"delta":{"content":"good"}}]}',
         b'data: {not json',
@@ -215,6 +223,7 @@ def test_no_failures_adds_no_gap_notice():
 
 def test_custom_prompt_reaches_the_request():
     response = Mock()
+    response.status_code = 200
     response.json.return_value = {'choices':[{'message':{'content':'x'}}]}
     with patch('insights.requests.post', return_value=response) as post:
         request_insight('{}', 'm', 't', prompt='自訂指示')
@@ -225,6 +234,7 @@ def test_custom_prompt_reaches_the_request():
 
 def test_default_prompt_is_used_when_none_given():
     response = Mock()
+    response.status_code = 200
     response.json.return_value = {'choices':[{'message':{'content':'x'}}]}
     with patch('insights.requests.post', return_value=response) as post:
         request_insight('{}', 'm', 't')
@@ -277,3 +287,42 @@ def test_no_events_still_reports_every_month():
         pd.Timestamp('2026-01-01'), pd.Timestamp('2026-02-28'))
     assert per_month == {'2026-01': 0, '2026-02': 0}
     assert whole == ['2026-01', '2026-02']
+
+
+def test_depleted_credits_says_so_instead_of_suggesting_a_retry():
+    """A 402 never resolves by retrying, so it must not read as a transient failure."""
+    response = Mock()
+    response.status_code = 402
+    with patch('insights.requests.post', return_value=response):
+        with pytest.raises(ServiceError) as caught:
+            request_insight('{}', 'm', 't')
+    assert '免費額度已用完' in str(caught.value)
+    assert isinstance(caught.value, ReadableError)
+    response.raise_for_status.assert_not_called()
+
+
+def test_bad_token_and_rate_limit_are_told_apart():
+    for status, expected in [(401, '金鑰無效'), (403, '權限不足'), (429, '限流')]:
+        response = Mock()
+        response.status_code = status
+        with patch('insights.requests.post', return_value=response):
+            with pytest.raises(ServiceError) as caught:
+                request_insight('{}', 'm', 't')
+        assert expected in str(caught.value), status
+
+
+def test_server_errors_still_invite_a_retry():
+    response = Mock()
+    response.status_code = 503
+    with patch('insights.requests.post', return_value=response):
+        with pytest.raises(ServiceError) as caught:
+            request_insight('{}', 'm', 't')
+    assert '稍後重試' in str(caught.value)
+
+
+def test_success_path_untouched_by_the_status_check():
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {'choices': [{'message': {'content': '正常'}}]}
+    with patch('insights.requests.post', return_value=response):
+        assert request_insight('{}', 'm', 't') == '正常'
