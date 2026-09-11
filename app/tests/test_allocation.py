@@ -1,4 +1,5 @@
 import pytest
+import allocation
 from allocation import validate_weights
 from streamlit.testing.v1 import AppTest
 
@@ -51,7 +52,7 @@ st.number_input('金額', key='investment_amount_wan')
     assert app.session_state.chosen_named_symbols == ['0050.TW', '2330.TW', '2454.TW']
     assert app.session_state.applied_weights == pytest.approx([1/3]*3)
     assert app.session_state.investment_amount_wan == 1000
-    app.selectbox(key='portfolio_preset').select('退休').run()
+    app.selectbox(key='portfolio_preset').select('退休1').run()
     assert not app.exception
     assert app.session_state.chosen_named_symbols == ['009816.TW', '00662.TW', '00984B.TWO', '00685L.TW']
     assert app.session_state.applied_weights == [.2, .2, .5, .1]
@@ -65,3 +66,10 @@ st.number_input('金額', key='investment_amount_wan')
     assert not app.exception
     assert app.session_state.applied_weights == pytest.approx([1/3]*3)
     assert app.session_state.investment_amount_wan == 1000
+
+
+def test_every_preset_is_fully_allocated():
+    """Hand-typed weight tables: a transposed digit would silently under- or
+    over-allocate, and the app would still run."""
+    for name, config in allocation.PRESETS.items():
+        assert sum(config['weights'].values()) == pytest.approx(100), name

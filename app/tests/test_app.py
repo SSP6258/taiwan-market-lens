@@ -173,7 +173,7 @@ def test_preset_applies_on_first_load():
         assert app.multiselect[0].value == ["0050.TW", "2330.TW", "2454.TW"]
         assert app.session_state["investment_amount_wan"] == 1000.0
         assert len(app.metric) == 3
-        pick(app, "selectbox", "預設配置").select("退休").run()
+        pick(app, "selectbox", "預設配置").select("退休1").run()
         assert not app.exception
         assert app.multiselect[0].value == ["009816.TW", "00662.TW", "00984B.TWO", "00685L.TW"]
         assert app.session_state["investment_amount_wan"] == 3000.0

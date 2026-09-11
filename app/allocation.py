@@ -5,7 +5,10 @@ import streamlit as st
 
 PRESETS = {
     '衝刺': {'weights': {'0050.TW': 100 / 3, '2330.TW': 100 / 3, '2454.TW': 100 / 3}, 'amount_wan': 1000.0},
-    '退休': {'weights': {'009816.TW': 20.0, '00662.TW': 20.0, '00984B.TWO': 50.0, '00685L.TW': 10.0}, 'amount_wan': 3000.0},
+    '退休1': {'weights': {'009816.TW': 20.0, '00662.TW': 20.0, '00984B.TWO': 50.0, '00685L.TW': 10.0}, 'amount_wan': 3000.0},
+    '退休2': {'weights': {'0050.TW': 20.0, '00662.TW': 20.0, '00984B.TWO': 50.0, '00685L.TW': 10.0}, 'amount_wan': 3000.0},
+    '退休3': {'weights': {'009816.TW': 20.0, '00662.TW': 30.0, '00984B.TWO': 40.0, '00685L.TW': 10.0}, 'amount_wan': 3000.0},
+    '退休4': {'weights': {'009816.TW': 10.0, '00662.TW': 20.0, '00984B.TWO': 50.0, '00685L.TW': 20.0}, 'amount_wan': 3000.0},
 }
 
 
@@ -31,7 +34,7 @@ def preset_picker():
         apply_preset()
         st.session_state.portfolio_presets_initialized = True
     st.selectbox('預設配置', list(PRESETS), key='portfolio_preset',
-                 format_func=lambda name: name + ('（預設・1,000 萬）' if name == '衝刺' else '（3,000 萬）'),
+                 format_func=lambda name: f"{name}（{'預設・' if name == '衝刺' else ''}{PRESETS[name]['amount_wan']:,.0f} 萬）",
                  on_change=apply_preset)
     st.button('重新套用此配置', key='reapply_preset', on_click=apply_preset)
 
