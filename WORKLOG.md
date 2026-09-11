@@ -17,7 +17,8 @@
 **最後更新：2026-09-11**
 
 - 分支：`feature/ai-allocation-advisor`，基底 `99b5a42`（origin/main）
-- **尚未 commit**，工作區有 9 個檔案的改動
+- 已 commit `4f8029d`（10 檔、+823/-33），**工作區乾淨、尚未 push**
+- 要更新雲端正式站需合回 `main` 再 push（App settings 沒有 branch 欄位）
 - 測試：**48 passed / 6 failed**
   - 6 個失敗全在 `app/tests/test_app.py`，**在本次改動之前就是紅的**（見「已知問題」）
 - 本機 App：`http://127.0.0.1:8501`，AI 分頁串流輸出，首字約 1–10 秒、全文約 9–20 秒
