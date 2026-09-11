@@ -4,8 +4,8 @@ import pandas as pd
 import pytest
 from insights import (MAX_OUTPUT_TOKENS, READ_TIMEOUT_SECONDS, ModelOutputError, allocation_facts, market_and_income_facts,
                       sharpe_facts,
-                      build_payload, conclusions, correlation_pairs, request_insight,
-                      stream_insight)
+                      build_payload, conclusions, correlation_pairs, model_note,
+                      request_insight, stream_insight)
 
 
 def test_conclusion_uses_percentage_points_and_drawdown_direction():
@@ -210,3 +210,27 @@ def test_no_failures_adds_no_gap_notice():
     with patch('insights.beta_facts', return_value={'市場敏感度': {}}),          patch('insights.dividend_facts', return_value={'配息': {}}):
         facts = market_and_income_facts(None, None, str, None, None, '還原', '組合', None)
     assert '資料缺漏' not in facts
+
+
+def test_custom_prompt_reaches_the_request():
+    response = Mock()
+    response.json.return_value = {'choices':[{'message':{'content':'x'}}]}
+    with patch('insights.requests.post', return_value=response) as post:
+        request_insight('{}', 'm', 't', prompt='自訂指示')
+    sent = post.call_args.kwargs['json']['messages'][0]
+    assert sent['role'] == 'system'
+    assert sent['content'] == '自訂指示'
+
+
+def test_default_prompt_is_used_when_none_given():
+    response = Mock()
+    response.json.return_value = {'choices':[{'message':{'content':'x'}}]}
+    with patch('insights.requests.post', return_value=response) as post:
+        request_insight('{}', 'm', 't')
+    assert '## 分析框架' in post.call_args.kwargs['json']['messages'][0]['content']
+
+
+def test_model_note_ignores_the_routing_suffix():
+    assert model_note('zai-org/GLM-4.7-Flash:fastest') == model_note('zai-org/GLM-4.7-Flash')
+    assert model_note('zai-org/GLM-4.7-Flash:cheapest') is not None
+    assert model_note('some/unknown-model') is None

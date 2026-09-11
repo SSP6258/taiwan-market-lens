@@ -295,12 +295,17 @@ def setting(name):
 ROUTER_URL = 'https://router.huggingface.co/v1/chat/completions'
 
 
-def _body(payload, model, stream):
+def active_prompt():
+    """The applied instruction, or the shipped default when the reader has not changed it."""
+    return st.session_state.get('system_prompt') or SYSTEM_PROMPT
+
+
+def _body(payload, model, stream, prompt):
     return {'model': model, 'max_tokens': MAX_OUTPUT_TOKENS, 'stream': stream,
             # Providers differ on whether thinking is on by default for the same model;
             # left to the default, a reasoning pass eats the whole budget and returns no text.
             'chat_template_kwargs': {'enable_thinking': False},
-            'messages': [{'role': 'system', 'content': SYSTEM_PROMPT},
+            'messages': [{'role': 'system', 'content': prompt},
                          {'role': 'user', 'content': payload}]}
 
 
@@ -316,10 +321,11 @@ def _guard(text, reasoning, model):
     raise ValueError('Empty response')
 
 
-def request_insight(payload, model, token):
+def request_insight(payload, model, token, prompt=None):
     """Buffered call. The UI uses stream_insight; this stays for scripted checks."""
     response = requests.post(ROUTER_URL, headers={'Authorization': f'Bearer {token}'},
-                             timeout=(5, READ_TIMEOUT_SECONDS), json=_body(payload, model, False))
+                             timeout=(5, READ_TIMEOUT_SECONDS),
+                             json=_body(payload, model, False, prompt or SYSTEM_PROMPT))
     response.raise_for_status()
     choice = response.json()['choices'][0]
     message = choice['message']
@@ -331,7 +337,7 @@ def request_insight(payload, model, token):
     return result
 
 
-def stream_insight(payload, model, token):
+def stream_insight(payload, model, token, prompt=None):
     """Yield text as it arrives.
 
     Two reasons over the buffered call: the reader sees words in about a second
@@ -340,7 +346,8 @@ def stream_insight(payload, model, token):
     """
     response = requests.post(ROUTER_URL, headers={'Authorization': f'Bearer {token}'},
                              timeout=(5, READ_TIMEOUT_SECONDS),
-                             json=_body(payload, model, True), stream=True)
+                             json=_body(payload, model, True, prompt or SYSTEM_PROMPT),
+                             stream=True)
     response.raise_for_status()
     text, reasoning, finish_reason = '', '', None
     for line in response.iter_lines():
@@ -365,17 +372,69 @@ def stream_insight(payload, model, token):
         yield TRUNCATION_NOTE
 
 
+# What we measured ourselves, not vendor claims. Keyed without the routing suffix.
+MODEL_NOTES = {
+    'zai-org/GLM-4.7-Flash': '智譜 AI（Z.ai）的開源模型，Flash 版本主打快速回應。'
+                             '本專案實測繁體中文表達穩定，未出現簡體用詞或英文夾雜，單次約 9–20 秒。',
+    'Qwen/Qwen3.5-35B-A3B': '阿里巴巴通義千問系列，MoE 架構。速度約快 4 倍，'
+                            '但本專案實測會出現簡體字（「负相關」）、夾雜英文並捏造輸入沒有的事實，因此未採用。',
+    'deepseek-ai/DeepSeek-V3': 'DeepSeek 開源模型，中文與推理能力佳，但用詞偏簡體習慣，需在指示中特別約束。',
+}
+
+
+def model_note(model):
+    return MODEL_NOTES.get(model.split(':')[0])
+
+
+def _apply_prompt():
+    st.session_state['system_prompt'] = st.session_state['system_prompt_draft']
+
+
+def _reset_prompt():
+    st.session_state.pop('system_prompt', None)
+    st.session_state['system_prompt_draft'] = SYSTEM_PROMPT
+
+
+def disclosure(payload, model):
+    """Show what the model is told and what it is given, and let the reader change the former."""
+    st.caption('🤗 由 Hugging Face Inference Providers 提供的開源權重模型'
+               + (f'　·　目前使用 `{model}`' if model else '　·　**尚未設定模型**'))
+    note = model_note(model) if model else None
+    if note:
+        st.caption(note)
+    st.caption('模型不做任何計算。下方數字全部由本程式算好後才送出，模型只負責轉成文字。')
+    prompt = active_prompt()
+    with st.expander('送給 AI 的完整內容（指示與數字）'):
+        st.caption('**指示**｜決定 AI 用什麼角度解讀、哪些話不准講。可以修改後重新產生。')
+        st.session_state.setdefault('system_prompt_draft', SYSTEM_PROMPT)
+        st.text_area('指示（system prompt）', key='system_prompt_draft', height=300,
+                     label_visibility='collapsed')
+        left, right = st.columns(2)
+        left.button('套用修改後的指示', key='apply_prompt', on_click=_apply_prompt, width='stretch')
+        right.button('恢復預設指示', key='reset_prompt', on_click=_reset_prompt, width='stretch')
+        if prompt != SYSTEM_PROMPT:
+            st.warning('目前使用自訂指示。預設指示含有防止模型自行計算、誇大幅度與給出買賣指令的規則，'
+                       '移除後產出的內容可能不再受這些限制。')
+        st.caption('**數字**｜AI 只看得到這些，不含帳戶或個人資料。')
+        st.json(payload)
+        st.caption('點擊按鈕時會再補上 Beta 與配息資料，兩者需要另外向資料來源查詢。')
+    return prompt
+
+
 @st.fragment
 def ai_panel(payload, expand=None):
     """`expand` returns the full payload including the network-bound extras.
     It runs on the button press so opening the tab stays instant."""
     model, token = setting('HF_MODEL'), setting('HF_TOKEN')
-    st.caption("選用功能：點擊後將本頁統計摘要送至 Hugging Face 推論服務；不傳送帳戶或持倉資料。")
+    # Disclosed before the token check: what would be sent is worth seeing either way.
+    prompt = disclosure(payload, model)
+    st.caption("選用功能：點擊後將上述內容送至 Hugging Face 推論服務；不傳送帳戶或持倉資料。")
     if not model or not token:
         st.button('AI 深入解讀', disabled=True)
         st.caption('尚未設定 AI 服務；基本數據解讀已可使用。管理者需設定 HF_MODEL 與 HF_TOKEN。')
         return
-    key = hashlib.sha256((model + payload).encode()).hexdigest()
+    # The prompt is part of the request, so a changed instruction must miss the cache.
+    key = hashlib.sha256((model + prompt + payload).encode()).hexdigest()
     cache = st.session_state.setdefault('insight_results', {})
     entry = None
     if st.button('AI 深入解讀', key='generate_insight') and key not in cache:
@@ -384,10 +443,10 @@ def ai_panel(payload, expand=None):
             if expand is not None:
                 with st.spinner('正在取得 Beta 與配息資料…'):
                     body = expand()
-            text = st.write_stream(stream_insight(body, model, token), cursor='▌')
+            text = st.write_stream(stream_insight(body, model, token, prompt), cursor='▌')
             if len(cache) >= 10:
                 cache.pop(next(iter(cache)))
-            cache[key] = {'text': text, 'model': model}
+            cache[key] = {'text': text, 'model': model, 'custom': prompt != SYSTEM_PROMPT}
             entry = cache[key]  # Already on screen from the stream; do not draw it twice.
         except ModelOutputError as exc:
             st.warning(str(exc))
@@ -397,8 +456,9 @@ def ai_panel(payload, expand=None):
         entry = cache[key]
         st.markdown(entry['text'])
     if entry:
-        st.caption(f"由 `{entry['model']}` 產生（Hugging Face Inference Providers）。"
-                   'AI 輔助解讀，請以原始統計為準；相同摘要在本次連線中重用結果。')
+        custom = '　·　**使用自訂指示**' if entry.get('custom') else ''
+        st.caption(f"🤗 由 `{entry['model']}` 產生{custom}。"
+                   'AI 輔助解讀，請以原始統計為準；相同指示與摘要在本次連線中重用結果。')
 
 
 def render_insights(volatility, drawdown, corr, daily, segment, label, basis, weights=None, portfolio_name='等權重組合'):
@@ -466,12 +526,6 @@ def render_ai_page(prices, label, basis, weights=None, portfolio_name='等權重
     with st.container(border=True):
         for line in lines:
             st.write(line)
-        with st.expander('送給 AI 的完整內容（指示與數字）'):
-            st.caption('**指示**｜要求 AI 用什麼角度解讀、哪些話不准講。不含任何數字。')
-            st.code(SYSTEM_PROMPT, language=None, wrap_lines=True, height=320)
-            st.caption('**數字**｜AI 只看得到這些，全部由程式算好。不含帳戶或個人資料。')
-            st.json(payload)
-            st.caption('點擊按鈕時會再補上 Beta 與配息資料，兩者需要另外向資料來源查詢。')
         ai_panel(payload, expand)
     st.caption('依起始比重持有不再平衡，未計交易成本與稅金。歷史統計不代表未來績效。'
                '本頁為教育性資訊，不構成投資建議，也不是個人化理財規劃。')

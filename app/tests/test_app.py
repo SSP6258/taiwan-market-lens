@@ -188,6 +188,28 @@ def test_ai_tab_shows_the_prompt_not_just_the_numbers():
         app = app.run(timeout=30)
         assert not app.exception
         assert any("送給 AI" in e.label for e in app.expander)
-        shown = [c.value for c in app.get("code")]
+        shown = [t.value for t in app.text_area]
         assert any("## 分析框架" in v and "## 禁止" in v for v in shown), "指示未顯示在畫面上"
         assert any("不得自行計算" in v for v in shown), "計算禁令未顯示"
+        assert any("套用修改後的指示" == b.label for b in app.button), "指示不可編輯"
+        assert any("Hugging Face" in c.value for c in app.caption), "未說明模型來源"
+
+
+def test_editing_the_prompt_is_applied_and_flagged():
+    """A changed instruction must take effect and must be visible as non-default,
+    because the shipped rules are what keep the output inside its limits."""
+    with patch("market.load_symbol", side_effect=fixture_history),          patch("insights.setting", side_effect={"HF_MODEL": "zai-org/GLM-4.7-Flash:fastest",
+                                                "HF_TOKEN": "hf_fake"}.__getitem__):
+        app = new_app()
+        app.session_state["analysis_tabs"] = "AI 深度解讀"
+        app = app.run(timeout=30)
+        assert not app.warning
+        app.text_area[0].set_value("只用一句話總結。").run()
+        next(b for b in app.button if b.label == "套用修改後的指示").click().run()
+        assert not app.exception
+        assert app.session_state["system_prompt"] == "只用一句話總結。"
+        assert any("自訂指示" in w.value for w in app.warning)
+        next(b for b in app.button if b.label == "恢復預設指示").click().run()
+        assert not app.exception
+        assert "system_prompt" not in app.session_state
+        assert not any("自訂指示" in w.value for w in app.warning)
