@@ -213,3 +213,18 @@ def test_editing_the_prompt_is_applied_and_flagged():
         assert not app.exception
         assert "system_prompt" not in app.session_state
         assert not any("自訂指示" in w.value for w in app.warning)
+
+
+def test_unapplied_edit_says_so():
+    """Typing without pressing apply changes nothing; silence there reads as a broken feature."""
+    with patch("market.load_symbol", side_effect=fixture_history),          patch("insights.setting", side_effect={"HF_MODEL": "zai-org/GLM-4.7-Flash:fastest",
+                                                "HF_TOKEN": "hf_fake"}.__getitem__):
+        app = new_app()
+        app.session_state["analysis_tabs"] = "AI 深度解讀"
+        app = app.run(timeout=30)
+        assert not app.info
+        app.text_area[0].set_value("改了但不套用").run()
+        assert any("尚未套用" in i.value for i in app.info)
+        next(b for b in app.button if b.label == "套用修改後的指示").click().run()
+        assert not any("尚未套用" in i.value for i in app.info)
+        assert app.session_state["system_prompt"] == "改了但不套用"

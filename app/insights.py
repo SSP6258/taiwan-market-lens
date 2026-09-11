@@ -405,13 +405,18 @@ def disclosure(payload, model):
     st.caption('模型不做任何計算。下方數字全部由本程式算好後才送出，模型只負責轉成文字。')
     prompt = active_prompt()
     with st.expander('送給 AI 的完整內容（指示與數字）'):
-        st.caption('**指示**｜決定 AI 用什麼角度解讀、哪些話不准講。可以修改後重新產生。')
+        st.caption('**指示**｜決定 AI 用什麼角度解讀、哪些話不准講。可以修改後重新產生。'
+               '新增的規則若與既有段落牴觸，模型通常會服從份量較重的那邊；'
+               '要讓新規則生效，多半得改寫或刪掉衝突的部分，而不是附加在後面。')
         st.session_state.setdefault('system_prompt_draft', SYSTEM_PROMPT)
         st.text_area('指示（system prompt）', key='system_prompt_draft', height=300,
                      label_visibility='collapsed')
         left, right = st.columns(2)
         left.button('套用修改後的指示', key='apply_prompt', on_click=_apply_prompt, width='stretch')
         right.button('恢復預設指示', key='reset_prompt', on_click=_reset_prompt, width='stretch')
+        if st.session_state.get('system_prompt_draft', SYSTEM_PROMPT) != prompt:
+            st.info('編輯內容**尚未套用**，目前仍使用先前的指示。'
+                    '按上方「套用修改後的指示」才會生效。')
         if prompt != SYSTEM_PROMPT:
             st.warning('目前使用自訂指示。預設指示含有防止模型自行計算、誇大幅度與給出買賣指令的規則，'
                        '移除後產出的內容可能不再受這些限制。')
