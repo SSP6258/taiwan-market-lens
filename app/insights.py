@@ -466,7 +466,10 @@ def render_ai_page(prices, label, basis, weights=None, portfolio_name='等權重
     with st.container(border=True):
         for line in lines:
             st.write(line)
-        with st.expander('送出的統計摘要（AI 只會看到這些數字）'):
+        with st.expander('送給 AI 的完整內容（指示與數字）'):
+            st.caption('**指示**｜要求 AI 用什麼角度解讀、哪些話不准講。不含任何數字。')
+            st.code(SYSTEM_PROMPT, language=None, wrap_lines=True, height=320)
+            st.caption('**數字**｜AI 只看得到這些，全部由程式算好。不含帳戶或個人資料。')
             st.json(payload)
             st.caption('點擊按鈕時會再補上 Beta 與配息資料，兩者需要另外向資料來源查詢。')
         ai_panel(payload, expand)

@@ -19,7 +19,7 @@
 - 分支：`feature/ai-allocation-advisor`，基底 `99b5a42`（origin/main）
 - 已 commit `4f8029d`（10 檔、+823/-33），**工作區乾淨、尚未 push**
 - 要更新雲端正式站需合回 `main` 再 push（App settings 沒有 branch 欄位）
-- 測試：**58 passed / 0 failed**（全綠）
+- 測試：**59 passed / 0 failed**（全綠）
 - 本機 App：`http://127.0.0.1:8501`，AI 分頁串流輸出，首字約 1–10 秒、全文約 9–20 秒
 
 ## 進行中
@@ -111,6 +111,21 @@ Qwen 只講了國家那一層。DeepSeek 系列要留意簡體用詞（「投资
 ---
 
 ## 變更紀錄
+
+### 2026-09-11（第七次）—— 連 prompt 一起公開
+
+原本展開區只顯示數字，改成顯示**送給 AI 的完整內容**：指示（system prompt）與數字兩部分。
+理由是使用者有權知道 AI 被要求用什麼角度解讀、哪些話不准講 ——
+只公開數字而不公開指示，透明度只做了一半。
+
+用 `st.code(SYSTEM_PROMPT, language=None, wrap_lines=True, height=320)` 原文顯示，
+不用 `st.markdown`：prompt 裡有 `##` 標題，渲染後會跟 AI 的實際輸出混淆，
+而且使用者要看的是「模型收到的原文」，不是排版後的樣子。附帶複製按鈕方便外部比對。
+
+新增 `test_ai_tab_shows_the_prompt_not_just_the_numbers` 鎖住這個性質，
+避免日後重構讓 prompt 悄悄從畫面消失。
+做過變異驗證：把 `st.code(...)` 換成 `pass`，測試如預期失敗。58 → 59 passed。
+
 
 ### 2026-09-11（第六次）—— Beta 與配息串進 AI（一律送出，不設選項）
 

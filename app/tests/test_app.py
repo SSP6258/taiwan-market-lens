@@ -177,3 +177,17 @@ def test_preset_applies_on_first_load():
         assert not app.exception
         assert app.multiselect[0].value == ["009816.TW", "00662.TW", "00984B.TWO", "00685L.TW"]
         assert app.session_state["investment_amount_wan"] == 3000.0
+
+
+def test_ai_tab_shows_the_prompt_not_just_the_numbers():
+    """Transparency: a reader must be able to see what the model was told to do,
+    not only the figures it was given."""
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app()
+        app.session_state["analysis_tabs"] = "AI 深度解讀"
+        app = app.run(timeout=30)
+        assert not app.exception
+        assert any("送給 AI" in e.label for e in app.expander)
+        shown = [c.value for c in app.get("code")]
+        assert any("## 分析框架" in v and "## 禁止" in v for v in shown), "指示未顯示在畫面上"
+        assert any("不得自行計算" in v for v in shown), "計算禁令未顯示"
