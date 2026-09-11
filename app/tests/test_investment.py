@@ -67,5 +67,5 @@ render_investment(p,pd.Series({'A':1.}),30000000.,str,'還原價格')
     assert not app.exception
     assert app.metric[2].value == 'NT$ 33,000,000'
     assert app.metric[2].delta == '3,300 萬'
-    # The return percentage is not an amount and must not grow a 萬 line.
-    assert not app.metric[0].delta
+    # The return percentage is not an amount; its second line is the window it covers.
+    assert app.metric[0].delta == '2025/01/01 — 2025/01/03'

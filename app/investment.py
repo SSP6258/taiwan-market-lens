@@ -117,7 +117,11 @@ def render_investment(prices, weights, amount, label, basis):
     with total_tab:
         with st.container(key='investment_summary'):
             cards = st.columns(4, wrap=False)
-            cards[0].metric('區間報酬率', f'{(value.iloc[-1]/amount-1)*100:+.1f}%', border=True)
+            # The percentage is only readable against the window it covers, and the card
+            # sits far enough below the period caption to be read on its own.
+            cards[0].metric('區間報酬率', f'{(value.iloc[-1]/amount-1)*100:+.1f}%',
+                            delta=f'{first:%Y/%m/%d} — {last:%Y/%m/%d}',
+                            delta_color='off', delta_arrow='off', border=True)
             for card,title,v in zip(cards[1:],['初始投入','期末試算價值','區間損益'],[amount,value.iloc[-1],value.iloc[-1]-amount]):
                 money_metric(card,title,v, border=True)
         st.html('<style>.st-key-investment_summary [data-testid="stColumn"]{min-width:250px!important}.st-key-investment_summary [data-testid="stMetricValue"]{font-size:clamp(20px,2vw,30px)}</style>')
