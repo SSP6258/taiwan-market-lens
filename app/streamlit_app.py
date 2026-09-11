@@ -291,5 +291,5 @@ if investment_tab.open:
 if ai_tab.open:
     with ai_tab:
         from module_compat import load_renderer
-        render_ai_page = load_renderer("insights", "render_ai_page", "portfolio_name")
-        render_ai_page(prices, label, basis, weights, portfolio_name)
+        render_ai_page = load_renderer("insights", "render_ai_page", "amount")
+        render_ai_page(prices, label, basis, weights, portfolio_name, start, end, amount)

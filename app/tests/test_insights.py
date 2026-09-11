@@ -2,7 +2,8 @@ import json
 from unittest.mock import patch, Mock
 import pandas as pd
 import pytest
-from insights import (MAX_OUTPUT_TOKENS, READ_TIMEOUT_SECONDS, ModelOutputError, allocation_facts, sharpe_facts,
+from insights import (MAX_OUTPUT_TOKENS, READ_TIMEOUT_SECONDS, ModelOutputError, allocation_facts, market_and_income_facts,
+                      sharpe_facts,
                       build_payload, conclusions, correlation_pairs, request_insight,
                       stream_insight)
 
@@ -188,3 +189,24 @@ def test_stream_skips_malformed_chunks_without_dying():
         b'data: [DONE]']
     with patch('insights.requests.post', return_value=response):
         assert list(stream_insight('{}','m','t')) == ['good','tail']
+
+
+def test_one_failing_source_does_not_hide_the_other():
+    """A dividend outage must not also silence Beta, and the gap must be declared."""
+    with patch('insights.beta_facts', return_value={'市場敏感度': {'基準': '0050'}}),          patch('insights.dividend_facts', side_effect=RuntimeError('provider down')):
+        facts = market_and_income_facts(None, None, str, None, None, '還原', '組合', None)
+    assert facts['市場敏感度'] == {'基準': '0050'}
+    assert '配息' in facts['資料缺漏']
+    assert 'Beta' not in facts['資料缺漏']
+
+
+def test_both_sources_failing_is_stated_not_silent():
+    with patch('insights.beta_facts', side_effect=RuntimeError),          patch('insights.dividend_facts', side_effect=RuntimeError):
+        facts = market_and_income_facts(None, None, str, None, None, '還原', '組合', None)
+    assert 'Beta' in facts['資料缺漏'] and '配息' in facts['資料缺漏']
+
+
+def test_no_failures_adds_no_gap_notice():
+    with patch('insights.beta_facts', return_value={'市場敏感度': {}}),          patch('insights.dividend_facts', return_value={'配息': {}}):
+        facts = market_and_income_facts(None, None, str, None, None, '還原', '組合', None)
+    assert '資料缺漏' not in facts
