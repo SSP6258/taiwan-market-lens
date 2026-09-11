@@ -1,4 +1,7 @@
 """Daily-return correlation and a buy-and-hold diversification illustration."""
+
+# Shared with the other horizontal bar charts so axis labels are never dropped.
+ROW_HEIGHT = 44
 import numpy as np
 import pandas as pd
 import altair as alt
@@ -38,7 +41,8 @@ def render_analysis(prices, label, basis, weights=None, portfolio_name='等權�
     if len(daily) < 20:
         st.info(f"目前只有 {len(daily)} 筆共同有效日報酬；至少需要 20 筆，請延長區間或移除資料較短的標的。")
         return
-    st.caption(f"{daily.index[0]:%Y/%m/%d} — {daily.index[-1]:%Y/%m/%d} · {len(daily)} 筆共同日報酬 · {basis}")
+    st.caption(f"相關性期間 {daily.index[0]:%Y/%m/%d} — {daily.index[-1]:%Y/%m/%d} · {len(daily)} 筆共同日報酬"
+               "（日報酬比價格少一天，起日因此晚一個交易日）")
     st.write("接近 +1：同向連動；接近 0：線性關係較弱；接近 −1：反向連動。低相關可能有助分散，但不保證下跌時能互相抵銷。")
     if len(daily) < 60:
         st.warning("樣本不足 60 筆，相關性可能不穩定；建議延長比較期間。")
@@ -80,7 +84,8 @@ def render_analysis(prices, label, basis, weights=None, portfolio_name='等權�
             return
         st.caption('目前配置：' + '、'.join(f'{label(s)} {weights[s]*100:.1f}%' for s in weights.index))
         portfolio, volatility, drawdown = portfolio_stats(segment, weights, portfolio_name)
-        st.caption(f"試算期間 {segment.index[0]:%Y/%m/%d} — {segment.index[-1]:%Y/%m/%d} · 採最長連續完整行情區段")
+        st.caption(f"組合試算期間 {segment.index[0]:%Y/%m/%d} — {segment.index[-1]:%Y/%m/%d}"
+                   " · 採最長連續完整行情區段，與上方相關性期間可能不同")
         st.write("依目前起始配置持有、不再平衡。未計交易成本與稅金；組合價值為各檔標準化價格依起始比重加權。")
         for card, title, value in zip(st.columns(3), ['組合區間報酬','組合年化波動','組合最大回撤'], [(portfolio.iloc[-1]-1)*100,volatility[portfolio_name],drawdown[portfolio_name]]):
             card.metric(title, f'{value:.1f}%')
@@ -89,9 +94,9 @@ def render_analysis(prices, label, basis, weights=None, portfolio_name='等權�
         bars = result.reset_index(names='標的')
         mean_volatility = float(volatility.drop(portfolio_name).mul(weights).sum())
         st.caption(f"金色虛線：依起始比重加權的個別年化波動 {mean_volatility:.1f}%（不含組合）；青綠色：{portfolio_name}。")
-        bar_chart = alt.Chart(bars).mark_bar(cornerRadiusEnd=4).encode(y=alt.Y('標的:N',sort='-x',title=None),x=alt.X('年化波動 (%):Q', title='年化波動 (%)'),color=alt.condition(alt.datum.標的==portfolio_name,alt.value('#35E0CE'),alt.value('#536B91')),tooltip=['標的:N',alt.Tooltip('年化波動 (%):Q',format='.1f')])
+        bar_chart = alt.Chart(bars).mark_bar(cornerRadiusEnd=4).encode(y=alt.Y('標的:N',sort='-x',title=None,axis=alt.Axis(labelLimit=260,labelOverlap=False)),x=alt.X('年化波動 (%):Q', title='年化波動 (%)'),color=alt.condition(alt.datum.標的==portfolio_name,alt.value('#35E0CE'),alt.value('#536B91')),tooltip=['標的:N',alt.Tooltip('年化波動 (%):Q',format='.1f')])
         reference = alt.Chart(pd.DataFrame({'年化波動 (%)':[mean_volatility], '說明':['依起始比重加權的個別波動（不含組合）']})).mark_rule(color='#F3C969', strokeWidth=2, strokeDash=[6,4]).encode(x=alt.X('年化波動 (%):Q', title='年化波動 (%)'), tooltip=['說明:N',alt.Tooltip('年化波動 (%):Q',format='.1f')])
-        st.altair_chart((bar_chart + reference).properties(height=max(220,len(bars)*30)), width='stretch')
+        st.altair_chart((bar_chart + reference).properties(height=max(240,len(bars)*ROW_HEIGHT)), width='stretch')
         st.dataframe(result.style.format('{:.1f}%'), width='stretch')
         st.caption("此比較呈現特定期間的歷史結果，不代表最佳配置。最大回撤可能未改善；相關性也可能在市場壓力下升高。")
 

@@ -228,3 +228,38 @@ def test_unapplied_edit_says_so():
         next(b for b in app.button if b.label == "套用修改後的指示").click().run()
         assert not any("尚未套用" in i.value for i in app.info)
         assert app.session_state["system_prompt"] == "改了但不套用"
+
+
+def test_risk_tabs_group_and_default_to_correlation():
+    """Correlation sits under 風險分析 but stays one click from the top by being first."""
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app().run(timeout=30)
+        assert [t.label for t in app.tabs] == [
+            "行情比較", "風險分析", "投資報酬", "AI 深度解讀", "關於與使用說明"]
+        app.session_state["analysis_tabs"] = "風險分析"
+        app = app.run(timeout=30)
+        assert not app.exception
+        labels = [t.label for t in app.tabs]
+        assert labels[2:5] == ["相關性與分散效果", "Beta 分析", "夏普分析"]
+        # Opening the group renders the correlation page itself, not an empty shell.
+        assert any(h.value == "一起漲跌，還是彼此分散？" for h in app.subheader)
+
+
+def test_period_banner_shows_once_and_flags_a_shortened_window():
+    """One banner above the tabs, and it must say when the window is not what was asked for."""
+    def late_listing(symbol, start, end):
+        frame, stamp = fixture_history(symbol, start, end)
+        if symbol == "0052.TW":
+            frame = frame.iloc[len(frame) // 2:]
+        return frame, stamp
+    with patch("market.load_symbol", side_effect=late_listing):
+        app = new_app().run(timeout=30)
+        assert not app.exception
+        banners = [h.body for h in app.get("html") if "FCE4E6" in h.body]
+        assert len(banners) == 1, f"期間框應只有一個，實際 {len(banners)}"
+        assert "已自動縮短" in banners[0]
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app().run(timeout=30)
+        banners = [h.body for h in app.get("html") if "FCE4E6" in h.body]
+        assert len(banners) == 1
+        assert "已自動縮短" not in banners[0], "期間完整時不該出現縮短提示"

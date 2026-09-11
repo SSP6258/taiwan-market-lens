@@ -1,4 +1,7 @@
 """Pairwise daily-return market sensitivity, with intercept."""
+
+# Shared with the other horizontal bar charts so axis labels are never dropped.
+ROW_HEIGHT = 44
 import numpy as np
 import pandas as pd
 import altair as alt
@@ -73,9 +76,9 @@ def render_beta(prices, label, names, start, end, basis, weights=None, portfolio
     st.write('Beta 1.0 代表對基準的敏感度相近；大於 1.0 較敏感，介於 0.0 與 1.0 較低，負值表示反向關係。這是歷史統計，不是單日預測。')
     with st.container(border=True):
         st.subheader('敏感度排序')
-        bars = alt.Chart(frame).mark_bar(cornerRadiusEnd=4).encode(y=alt.Y('標的:N', sort='-x', title=None), x=alt.X('Beta:Q'), color=alt.condition(alt.datum.Beta < 0, alt.value('#F3A65A'), alt.value('#35CDBF')), tooltip=['標的:N',alt.Tooltip('Beta:Q',format='.2f'),alt.Tooltip('R²:Q',format='.2f'),'樣本數:Q','起日:N','迄日:N'])
+        bars = alt.Chart(frame).mark_bar(cornerRadiusEnd=4).encode(y=alt.Y('標的:N', sort='-x', title=None, axis=alt.Axis(labelLimit=260, labelOverlap=False)), x=alt.X('Beta:Q'), color=alt.condition(alt.datum.Beta < 0, alt.value('#F3A65A'), alt.value('#35CDBF')), tooltip=['標的:N',alt.Tooltip('Beta:Q',format='.2f'),alt.Tooltip('R²:Q',format='.2f'),'樣本數:Q','起日:N','迄日:N'])
         rule = alt.Chart(pd.DataFrame({'Beta':[1.0]})).mark_rule(color='#F3C969',strokeDash=[5,4]).encode(x='Beta:Q')
-        st.altair_chart((bars+rule).properties(height=max(230,len(rows)*34)), width='stretch')
+        st.altair_chart((bars+rule).properties(height=max(240,len(rows)*ROW_HEIGHT)), width='stretch')
         st.caption(f'金色虛線：Beta 1.0 · 基準：{benchmark_label(benchmark)} · {basis}。每檔各自對齊基準，樣本期間可能不同。')
         st.dataframe(frame, hide_index=True, column_config={'Beta':st.column_config.NumberColumn(format='%.2f'), 'R²':st.column_config.NumberColumn(format='%.2f')}, width='stretch')
     with st.container(border=True):

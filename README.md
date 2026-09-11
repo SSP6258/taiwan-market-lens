@@ -18,7 +18,7 @@ python -m venv .venv
 
 ## Streamlit Community Cloud
 
-1. 將 `streamlit_app.py`、`about.md`、`market.py`、`lightweight_chart.py`、整個 `vendor/`、`static/`、`requirements.txt` 與 `.streamlit/config.toml` 推送到自己的 GitHub repository。
+1. 把**整個 repository** 推送到 GitHub。不要逐檔挑選 —— 模組之間互相 import，漏一個就會在雲端 ImportError；`.gitignore` 已排除金鑰與本機檔案。
 2. 在 Streamlit Community Cloud 建立 app，選 repository／branch，入口填 `streamlit_app.py`。
 3. Advanced settings 選 Python 3.13，再部署。此版本不需要 API key。
 
@@ -65,7 +65,7 @@ python -m venv .venv
 
 數據解讀由程式直接計算，不需要 LLM。AI 解讀位於獨立的「AI 深度解讀」分頁（在「投資報酬」之後），自行計算所需統計，不需先開啟其他分頁。送出內容含比重、集中度、相關性、報酬與回撤、夏普、Beta 與配息分布；Beta 與配息在點擊按鈕時才向資料來源查詢，開啟分頁不會觸發。輸出為串流顯示。
 
-按鈕需在本地 `.streamlit/secrets.toml` 或雲端 Secrets 設定 `HF_TOKEN` 與 `HF_MODEL`（Hugging Face Inference Providers 支援的完整模型 ID）。不要提交真實金鑰。點擊才傳送統計摘要；每次連線最多快取 10 組結果，切換資料不顯示舊摘要。服務讀取逾時為 30 秒，失敗可重試。部署請包含 `correlation.py` 與 `insights.py`。
+按鈕需在本地 `.streamlit/secrets.toml` 或雲端 Secrets 設定 `HF_TOKEN` 與 `HF_MODEL`（Hugging Face Inference Providers 支援的完整模型 ID）。不要提交真實金鑰。點擊才傳送統計摘要；每次連線最多快取 10 組結果，切換資料不顯示舊摘要。服務讀取逾時為 90 秒；輸出採串流，逾時是計算在每個片段之間而非整段生成。失敗可重試。
 
 **`HF_MODEL` 建議用 `:fastest` 後綴**（例如 `zai-org/GLM-4.7-Flash:fastest`）。請求一律送 `enable_thinking: False`，因為同一模型在不同供應商的思考模式預設不同；交由預設會把 `max_tokens` 用在 `reasoning_content` 並回傳空白正文。實測 `:cheapest` 需 40–78 秒，`:fastest` 約 3–8 秒。
 

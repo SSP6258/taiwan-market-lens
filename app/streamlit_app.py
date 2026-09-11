@@ -15,7 +15,10 @@ st.caption("TAIWAN MARKET LENS  /  台股・ETF 研究工具")
 st.title("台股比較室")
 st.write("同一起點，看見不同走勢。比較股票與 ETF 的歷史報酬和風險。")
 
-comparison_tab, correlation_tab, indicators_tab, investment_tab, ai_tab, about_tab = st.tabs(["行情比較", "相關性與分散效果", "指標分析", "投資報酬", "AI 深度解讀", "關於與使用說明"], on_change="rerun", key="analysis_tabs")
+# Reserved above the tab bar so the period shows once, on every tab, and is filled
+# after the data is loaded below.
+period_slot = st.empty()
+comparison_tab, risk_tab, investment_tab, ai_tab, about_tab = st.tabs(["行情比較", "風險分析", "投資報酬", "AI 深度解讀", "關於與使用說明"], on_change="rerun", key="analysis_tabs")
 with about_tab:
     st.markdown(Path(__file__).with_name("about.md").read_text(encoding="utf-8"))
     st.subheader("資料處理流程")
@@ -176,7 +179,12 @@ with comparison_tab:
         st.warning(str(exc)); st.stop()
 
     first, last = aligned.index[0], aligned.index[-1]
-    st.caption(f"{first:%Y/%m/%d} — {last:%Y/%m/%d}  ·  {len(aligned):,} 個共同交易日  ·  {len(aligned.columns)} 檔標的  ·  {basis}")
+    from ui import period_banner
+    shortened = (f"　·　你選擇 {start:%Y/%m/%d} 起，但部分標的資料較晚，已自動縮短"
+                 if first.date() > start else "")
+    with period_slot.container():
+        period_banner(f"期間｜{first:%Y/%m/%d} — {last:%Y/%m/%d}",
+                      f"{len(aligned):,} 個共同交易日 · {len(aligned.columns)} 檔標的 · {basis}{shortened}")
     if first > prices.dropna(how="all").index[0] or last < prices.dropna(how="all").index[-1]:
         valid_prices = prices.where((prices > 0) & (prices < float("inf")))
         available = valid_prices.dropna(how="all")
@@ -253,15 +261,16 @@ with comparison_tab:
     st.caption(f"資料取得時間（台北）：{min(fetched)} · 日線最新共同日期：{last:%Y/%m/%d}")
 
 
-if correlation_tab.open:
-    with correlation_tab:
-        from module_compat import load_renderer
-        render_analysis = load_renderer("correlation", "render_analysis", "weights")
-        render_analysis(prices, label, basis, weights, portfolio_name)
-
-if indicators_tab.open:
-    with indicators_tab:
-        beta_tab, sharpe_tab = st.tabs(["Beta 分析", "夏普分析"], on_change="rerun", key="indicator_tabs")
+if risk_tab.open:
+    with risk_tab:
+        # Correlation first: it is the heaviest of the three, so landing on it by default
+        # keeps it one click from the top despite the extra level.
+        correlation_tab, beta_tab, sharpe_tab = st.tabs(["相關性與分散效果", "Beta 分析", "夏普分析"], on_change="rerun", key="risk_tabs")
+        if correlation_tab.open:
+            with correlation_tab:
+                from module_compat import load_renderer
+                render_analysis = load_renderer("correlation", "render_analysis", "weights")
+                render_analysis(prices, label, basis, weights, portfolio_name)
         if beta_tab.open:
             with beta_tab:
                 from module_compat import load_renderer
@@ -271,7 +280,7 @@ if indicators_tab.open:
             with sharpe_tab:
                 import importlib
                 import sharpe_analysis
-                if getattr(sharpe_analysis, "UI_VERSION", 0) < 2:
+                if getattr(sharpe_analysis, "UI_VERSION", 0) < 3:
                     importlib.reload(sharpe_analysis)
                 sharpe_analysis.render_sharpe(prices, label, basis, weights, portfolio_name)
 

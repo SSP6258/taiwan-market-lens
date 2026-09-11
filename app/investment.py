@@ -1,7 +1,6 @@
 """Optional investment illustration; cash distributions never added to Adj Close."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from html import escape
 import altair as alt
 import numpy as np
 import pandas as pd
@@ -111,7 +110,7 @@ def render_investment(prices, weights, amount, label, basis):
         return
     first,last=segment.index[0],segment.index[-1]
     value=(segment/segment.iloc[0]).mul(weights,axis=1).sum(axis=1)*amount
-    st.html(f'<div style="background:#FCE4E6;color:#7F2635;border:1px solid #EFA9B2;border-radius:12px;padding:20px 24px;line-height:1.6"><strong>試算期間｜{first:%Y/%m/%d} — {last:%Y/%m/%d}</strong><div style="margin-top:8px">最長完整行情區段 · {escape(basis)}</div></div>')
+    st.caption(f'試算期間 {first:%Y/%m/%d} — {last:%Y/%m/%d} · 最長完整行情區段')
     st.caption('起初按比重一次投入、持有不再平衡；允許小數單位，未計交易成本、稅金。此為歷史理論試算。')
     total_tab, dividend_tab = st.tabs(['總報酬', '配息'])
     with total_tab:

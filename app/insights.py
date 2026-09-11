@@ -501,7 +501,7 @@ def render_ai_page(prices, label, basis, weights=None, portfolio_name='等權重
         return
     portfolio, volatility, drawdown = portfolio_stats(segment, weights, portfolio_name)
     st.caption('目前配置：' + '、'.join(f'{label(s)} {weights[s]*100:.1f}%' for s in weights.index))
-    st.caption(f'統計期間 {segment.index[0]:%Y/%m/%d} — {segment.index[-1]:%Y/%m/%d} · {len(daily)} 筆共同日報酬 · {basis}')
+    st.caption(f'統計期間 {segment.index[0]:%Y/%m/%d} — {segment.index[-1]:%Y/%m/%d} · {len(daily)} 筆共同日報酬')
     # The metrics and these lines are rendered on the correlation tab; here they are
     # payload material only, so the page opens straight onto the AI reading.
     lines = conclusions(volatility, drawdown, weights, portfolio_name)

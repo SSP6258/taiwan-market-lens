@@ -5,7 +5,9 @@ import altair as alt
 import streamlit as st
 from correlation import analysis_data
 
-UI_VERSION = 2
+UI_VERSION = 3
+# Tall enough that Vega never culls alternate axis labels on a horizontal bar chart.
+ROW_HEIGHT = 44
 
 
 def sharpe_stats(segment, weights, annual_rate):
@@ -23,7 +25,7 @@ def sharpe_stats(segment, weights, annual_rate):
 
 @st.fragment
 def render_sharpe(prices, label, basis, weights, portfolio_name):
-    st.subheader('夏普分析｜報酬與波動的交換效率')
+    st.subheader('報酬與波動的交換效率')
     st.write('每承受一單位波動，換到多少超過無風險利率的平均報酬？')
     rate = st.number_input('無風險年利率假設 (%)', min_value=0., max_value=20., value=2., step=.1, format='%.1f', key='sharpe_rate', help='可調整的固定年有效利率假設，預設 2.0% 並非即時市場利率。比較各配置時請使用相同假設。')
     _, _, segment = analysis_data(prices)
@@ -34,7 +36,7 @@ def render_sharpe(prices, label, basis, weights, portfolio_name):
     if valid_weights is None:
         st.warning('部分標的缺資料，暫停組合計算；不自動重新分配權重。')
     result = sharpe_stats(segment, valid_weights, rate)
-    st.info(f'共同試算期間｜{segment.index[0]:%Y/%m/%d} — {segment.index[-1]:%Y/%m/%d} · {len(segment)-1} 筆日報酬 · {basis}')
+    st.caption(f'共同試算期間 {segment.index[0]:%Y/%m/%d} — {segment.index[-1]:%Y/%m/%d} · {len(segment)-1} 筆日報酬')
     if len(segment) < 253:
         st.caption('樣本不足一年；以下是短期間日報酬年化估計，可能受少數漲跌影響，不能視為穩定的長期表現。')
     if not basis.startswith('還原'):
@@ -47,12 +49,12 @@ def render_sharpe(prices, label, basis, weights, portfolio_name):
     result.index = [portfolio_name if s == '組合' else label(s) for s in result.index]
     chart_data = result.rename_axis('標的').reset_index().dropna(subset=['夏普比率'])
     chart = alt.Chart(chart_data).mark_bar(cornerRadiusEnd=4).encode(
-        y=alt.Y('標的:N',sort='-x',title=None,axis=alt.Axis(labelLimit=260)),
+        y=alt.Y('標的:N',sort='-x',title=None,axis=alt.Axis(labelLimit=260,labelOverlap=False)),
         x=alt.X('夏普比率:Q',title='夏普比率',axis=alt.Axis(format='.1f')),
         color=alt.Color('類型:N', scale=alt.Scale(domain=['目前配置組合','個別標的（正值）','個別標的（負值）'], range=['#F5C451','#35CDBF','#FF7285']), legend=alt.Legend(orient='bottom', title=None)),
         tooltip=['標的:N',alt.Tooltip('夏普比率:Q',format='.1f'),alt.Tooltip('年化波動 (%):Q',format='.1f')])
     zero = alt.Chart(pd.DataFrame({'零':[0]})).mark_rule(color='#94A3B8').encode(x=alt.X('零:Q',title='夏普比率'))
-    st.altair_chart((chart + zero).properties(height=max(200,len(chart_data)*38)),width='stretch')
+    st.altair_chart((chart + zero).properties(height=max(240,len(chart_data)*ROW_HEIGHT)),width='stretch')
     result = result.drop(columns='類型')
     st.dataframe(result, column_config={c:st.column_config.NumberColumn(format='%d' if c=='日報酬筆數' else '%.1f') for c in result},width='stretch')
     st.markdown("""**如何解讀**
