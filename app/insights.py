@@ -497,9 +497,8 @@ def render_ai_page(prices, label, basis, weights=None, portfolio_name='等權重
     portfolio, volatility, drawdown = portfolio_stats(segment, weights, portfolio_name)
     st.caption('目前配置：' + '、'.join(f'{label(s)} {weights[s]*100:.1f}%' for s in weights.index))
     st.caption(f'統計期間 {segment.index[0]:%Y/%m/%d} — {segment.index[-1]:%Y/%m/%d} · {len(daily)} 筆共同日報酬 · {basis}')
-    for card, title, value in zip(st.columns(3), ['組合區間報酬', '組合年化波動', '組合最大回撤'],
-                                  [(portfolio.iloc[-1] - 1) * 100, volatility[portfolio_name], drawdown[portfolio_name]]):
-        card.metric(title, f'{value:.1f}%', border=True)
+    # The metrics and these lines are rendered on the correlation tab; here they are
+    # payload material only, so the page opens straight onto the AI reading.
     lines = conclusions(volatility, drawdown, weights, portfolio_name)
     # A dict rename leaves portfolio_name alone; rename(index=label) would mangle it.
     names = {s: label(s) for s in weights.index}
@@ -524,8 +523,6 @@ def render_ai_page(prices, label, basis, weights=None, portfolio_name='等權重
                              {**facts, **extra})
 
     with st.container(border=True):
-        for line in lines:
-            st.write(line)
         ai_panel(payload, expand)
     st.caption('依起始比重持有不再平衡，未計交易成本與稅金。歷史統計不代表未來績效。'
                '本頁為教育性資訊，不構成投資建議，也不是個人化理財規劃。')
