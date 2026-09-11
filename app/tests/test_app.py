@@ -15,10 +15,26 @@ def offline_security_names():
         yield
 
 
-def new_app():
+def pick(app, kind, label):
+    """Look widgets up by label. Index lookups break whenever a widget is inserted
+    above them, which is exactly how the preset selectbox silently broke these tests."""
+    return next(w for w in getattr(app, kind) if w.label == label)
+
+
+def new_app(with_preset=False):
+    """Start with the patched DEFAULT_SYMBOLS rather than a preset.
+
+    preset_picker() applies 衝刺 on first load, replacing the selection with its own
+    three symbols. That is real behaviour, but it is not what most of these tests are
+    about, so they opt out and choose their own symbols.
+    test_preset_applies_on_first_load covers the preset itself.
+    """
     # AppTest creates a separate component registry for each runtime.
     sys.modules.pop("lightweight_chart", None)
-    return AppTest.from_file(APP)
+    app = AppTest.from_file(APP)
+    if not with_preset:
+        app.session_state["portfolio_presets_initialized"] = True
+    return app
 
 
 def fixture_history(symbol, start, end):
@@ -35,9 +51,9 @@ def test_app_controls_and_empty_state():
         assert len(app.metric) == 4
         assert len(app.multiselect[0].value) == 10
         assert len(app.get("bidi_component")) == 1
-        app.selectbox[0].select("收盤價（未還原）").run()
+        pick(app, "selectbox", "價格基準").select("收盤價（未還原）").run()
         assert not app.exception
-        app.segmented_control[1].set_value("歷史回撤").run()
+        pick(app, "segmented_control", "圖表指標").set_value("歷史回撤").run()
         assert not app.exception
         app.multiselect[0].set_value([]).run()
         assert not app.exception
@@ -92,7 +108,7 @@ def test_invalid_addition_keeps_selection_and_message():
         assert not app.exception
         assert app.multiselect[0].value == original
         assert any("無效代碼" in e.value for e in app.error)
-        app.selectbox[0].select("收盤價（未還原）").run()
+        pick(app, "selectbox", "價格基準").select("收盤價（未還原）").run()
         assert any("無效代碼" in e.value for e in app.error)
 
 
@@ -146,3 +162,18 @@ def test_metric_cards_rank_by_return():
         app = new_app().run(timeout=30)
         assert not app.exception
         assert [m.label.split()[0] for m in app.metric] == ["2454", "8069", "2330", "0052"]
+
+
+def test_preset_applies_on_first_load():
+    """The preset replaces the default selection and the amount; nothing covered this,
+    which is why it broke these tests unnoticed when it was added."""
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app(with_preset=True).run(timeout=30)
+        assert not app.exception
+        assert app.multiselect[0].value == ["0050.TW", "2330.TW", "2454.TW"]
+        assert app.session_state["investment_amount_wan"] == 1000.0
+        assert len(app.metric) == 3
+        pick(app, "selectbox", "預設配置").select("退休").run()
+        assert not app.exception
+        assert app.multiselect[0].value == ["009816.TW", "00662.TW", "00984B.TWO", "00685L.TW"]
+        assert app.session_state["investment_amount_wan"] == 3000.0
