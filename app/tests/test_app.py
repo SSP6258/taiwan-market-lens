@@ -285,3 +285,26 @@ def test_generated_reading_is_offered_for_copying():
                     assert any(FAKE_READING in c.value for c in app.get("code")), "產生後應可複製原文"
                     # The reading still renders as Markdown, not only inside the copy block.
                     assert any(FAKE_READING in m.value for m in app.markdown)
+
+
+def test_common_period_names_only_the_binding_symbol():
+    """Several holdings share the same boundary date; repeating it once per holding
+    buries the one fact that matters. A one-day tail is the publishing lag, not a gap."""
+    def lagging(symbol, start, end):
+        frame, stamp = fixture_history(symbol, start, end)
+        if symbol == "009816.TW":
+            frame = frame.iloc[10:]
+        if symbol == "00662.TW":
+            frame = frame.iloc[20:]
+        if symbol in ("00662.TW", "00984B.TWO", "00685L.TW"):
+            frame = frame.iloc[:-1]
+        return frame, stamp
+    symbols = ["009816.TW", "00662.TW", "00984B.TWO", "00685L.TW"]
+    with patch("market.DEFAULT_SYMBOLS", symbols), patch("market.load_symbol", side_effect=lagging):
+        app = new_app().run(timeout=30)
+        assert not app.exception
+        notice = next(i.value for i in app.info if "共同期間" in i.value)
+        # 00662 starts latest, so it is the one that sets the common start.
+        assert "00662 富邦NASDAQ：資料自" in notice
+        assert "009816" not in notice
+        assert "限制共同迄日" not in notice

@@ -189,20 +189,30 @@ with comparison_tab:
         valid_prices = prices.where((prices > 0) & (prices < float("inf")))
         available = valid_prices.dropna(how="all")
         reasons = []
+        # Each side is held by whichever holding is missing on the adjoining day, but they
+        # all share that one date, so listing every name repeats the same fact. Name the
+        # one that actually sets the boundary: latest to start, earliest to end.
         if first > available.index[0]:
             previous = available.index[available.index < first][-1]
-            for s in available.columns[available.loc[previous].isna()]:
+            blocking = list(available.columns[available.loc[previous].isna()])
+            if blocking:
+                s = max(blocking, key=lambda c: available[c].first_valid_index())
                 begins = available[s].first_valid_index()
                 detail = f"資料自 {begins:%Y/%m/%d} 起" if begins == first else f"{previous:%Y/%m/%d} 缺少有效資料"
                 reasons.append(f"{label(s)}：{detail}，限制共同起日")
-        if last < available.index[-1]:
+        # One trimmed day is the daily publishing lag, not a coverage problem worth a line.
+        if len(available.index[available.index > last]) > 1:
             following = available.index[available.index > last][0]
-            for s in available.columns[available.loc[following].isna()]:
+            blocking = list(available.columns[available.loc[following].isna()])
+            if blocking:
+                s = min(blocking, key=lambda c: available[c].last_valid_index())
                 ends = available[s].last_valid_index()
                 detail = f"資料截至 {ends:%Y/%m/%d}" if ends == last else f"{following:%Y/%m/%d} 缺少有效資料"
                 reasons.append(f"{label(s)}：{detail}，限制共同迄日")
-        st.info(f"已自動縮至共同期間 {first:%Y/%m/%d} — {last:%Y/%m/%d}，所有線從 0.0% 開始。\n\n" + "\n\n".join(reasons))
-        st.caption("以上為所選區間內資料來源的有效行情日期，不一定等於掛牌或下市日期。")
+        # With nothing left to explain the box would state the period the banner already shows.
+        if reasons:
+            st.info(f"已自動縮至共同期間 {first:%Y/%m/%d} — {last:%Y/%m/%d}，所有線從 0.0% 開始。\n\n" + "\n\n".join(reasons))
+            st.caption("以上為所選區間內資料來源的有效行情日期，不一定等於掛牌或下市日期。")
     top_symbols = returns.iloc[-1].sort_values(ascending=False, kind="stable").index[:4]
     for card, s in zip(st.columns(len(top_symbols)), top_symbols):
         with card:
