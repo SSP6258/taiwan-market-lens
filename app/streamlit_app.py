@@ -15,7 +15,7 @@ st.caption("TAIWAN MARKET LENS  /  台股・ETF 研究工具")
 st.title("台股比較室")
 st.write("同一起點，看見不同走勢。比較股票與 ETF 的歷史報酬和風險。")
 
-comparison_tab, correlation_tab, indicators_tab, investment_tab, about_tab = st.tabs(["行情比較", "相關性與分散效果", "指標分析", "投資報酬", "關於與使用說明"], on_change="rerun", key="analysis_tabs")
+comparison_tab, correlation_tab, indicators_tab, investment_tab, ai_tab, about_tab = st.tabs(["行情比較", "相關性與分散效果", "指標分析", "投資報酬", "AI 深度解讀", "關於與使用說明"], on_change="rerun", key="analysis_tabs")
 with about_tab:
     st.markdown(Path(__file__).with_name("about.md").read_text(encoding="utf-8"))
     st.subheader("資料處理流程")
@@ -287,3 +287,9 @@ if investment_tab.open:
                 importlib.invalidate_caches()
                 importlib.reload(investment)
             investment.render_investment(prices, weights, amount, label, basis)
+
+if ai_tab.open:
+    with ai_tab:
+        from module_compat import load_renderer
+        render_ai_page = load_renderer("insights", "render_ai_page", "portfolio_name")
+        render_ai_page(prices, label, basis, weights, portfolio_name)

@@ -18,6 +18,16 @@ def analysis_data(prices):
     return daily, corr, segment
 
 
+def portfolio_stats(segment, weights, portfolio_name='等權重組合'):
+    """Wealth path, annualised volatility and max drawdown for each holding plus the blend."""
+    wealth = segment / segment.iloc[0]
+    portfolio = wealth.mul(weights, axis=1).sum(axis=1)
+    wealth[portfolio_name] = portfolio
+    volatility = wealth.pct_change(fill_method=None).iloc[1:].std() * np.sqrt(252) * 100
+    drawdown = (wealth / wealth.cummax() - 1).min() * 100
+    return portfolio, volatility, drawdown
+
+
 def render_analysis(prices, label, basis, weights=None, portfolio_name='等權重組合'):
     st.subheader("一起漲跌，還是彼此分散？")
     st.caption("DIVERSIFICATION LAB · 每日報酬相關性與等權重持有試算")
@@ -69,11 +79,7 @@ def render_analysis(prices, label, basis, weights=None, portfolio_name='等權�
             st.warning('部分標的行情缺失，暫停組合試算以保留原配置；請移除失敗標的或重新取得資料。')
             return
         st.caption('目前配置：' + '、'.join(f'{label(s)} {weights[s]*100:.1f}%' for s in weights.index))
-        wealth = segment / segment.iloc[0]
-        portfolio = wealth.mul(weights, axis=1).sum(axis=1)
-        wealth[portfolio_name] = portfolio
-        volatility = wealth.pct_change(fill_method=None).iloc[1:].std()*np.sqrt(252)*100
-        drawdown = (wealth / wealth.cummax() - 1).min()*100
+        portfolio, volatility, drawdown = portfolio_stats(segment, weights, portfolio_name)
         st.caption(f"試算期間 {segment.index[0]:%Y/%m/%d} — {segment.index[-1]:%Y/%m/%d} · 採最長連續完整行情區段")
         st.write("依目前起始配置持有、不再平衡。未計交易成本與稅金；組合價值為各檔標準化價格依起始比重加權。")
         for card, title, value in zip(st.columns(3), ['組合區間報酬','組合年化波動','組合最大回撤'], [(portfolio.iloc[-1]-1)*100,volatility[portfolio_name],drawdown[portfolio_name]]):
