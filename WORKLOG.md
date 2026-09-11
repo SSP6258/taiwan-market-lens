@@ -14,13 +14,16 @@
 
 ## 目前狀態
 
-**最後更新：2026-09-11**
+**最後更新：2026-09-12**
 
-- 分支：`main`，已與 `origin/main` 同步於 `3c92518`
-- **已部署**：8 個 commit 於 2026-09-11 合併並推送，Streamlit Cloud 自動重新部署
-- 雲端 Secrets（`HF_TOKEN` / `HF_MODEL`）已由使用者於 App settings 設定
+- 分支：`main`，已與 `origin/main` 同步於 `c44d0ec`
+- **已部署**：6 個 commit 於 2026-09-12 推送（`17a8d10..c44d0ec`），Streamlit Cloud 自動重新部署
+- 雲端 Secrets（`HF_TOKEN` / `HF_MODEL`）已由使用者於 App settings 設定；
+  `HF_MODEL` 維持 `zai-org/GLM-4.7:fastest`，這批改動沒有動到任何設定格式
 - 開發分支 `feature/ai-allocation-advisor` 已 fast-forward 併入，可刪
-- 測試：**75 passed / 0 failed**（全綠）
+- **`abandoned/model-fallback` 只存在於原開發機**，從未推送。
+  在新 clone 上找不到它——要保留那份程式碼得先 `git push origin abandoned/model-fallback`
+- 測試：**81 passed / 0 failed**（全綠）
 - 本機 App：`http://127.0.0.1:8501`，AI 分頁串流輸出，首字約 1–10 秒、全文約 9–20 秒
 
 ## 進行中
@@ -28,12 +31,16 @@
 把 AI 解讀從「附屬在相關性分頁的小面板」做成完整功能。原始需求是
 **「分析並評論 APP 上設定的投資配置，並提出專業的理財規劃建議」**。
 
-分四步，目前完成第 1 步：
+分四步，目前完成第 1、2 步：
 
 1. ✅ AI 解讀獨立成分頁，放在「投資報酬」之後
-2. ✅ 放寬 system prompt 分寸，改為輸出「樣貌／風險／方向」三段評論
+2. ✅ 放寬 system prompt 分寸，改為輸出評論式內容（當時是三段，現行 prompt 已是五段，見第三次）
 3. ⬜ 補上理財規劃需要的輸入（投資年期、每月可投入、目標、風險承受度）
 4. ⬜ 視情況做 BYO key（讓使用者用自己的 HF token）
+
+第 3 步自 2026-09-11 起就沒再動過。之後（第十七～二十一次）做的都是既有功能的
+可讀性與正確性修整，不在這四步之內：完整輸入可複製、退休配置擴成四個、
+共同期間提示收斂、金額加萬元第二行。**下一個實質功能仍然是第 3 步。**
 
 ## 待決定
 
