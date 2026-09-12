@@ -116,9 +116,6 @@ def render_strategies(label, basis, start, end, weights=None, portfolio_name='�
     render_chart(chart_data, {c: c for c in chart_data.columns},
                  {c: COLORS[i % len(COLORS)] for i, c in enumerate(chart_data.columns)}, view,
                  key='strategy_chart')
-    st.subheader('配置的報酬與風險')
-    st.dataframe(stats.round(1).rename_axis('配置').reset_index(), hide_index=True, width='stretch',
-                 column_config={c: st.column_config.NumberColumn(c, format='%.1f%%') for c in stats.columns})
     st.subheader('各配置的內容')
     st.caption('依起始比重買進後持有、不再平衡。比重顯示到小數一位，'
                '等分的配置（如衝刺的三分之一）相加會是 99.9%，實際計算用未四捨五入的值。')
@@ -131,6 +128,9 @@ def render_strategies(label, basis, start, end, weights=None, portfolio_name='�
         for column, name in zip(st.columns(PER_ROW, border=True), batch):
             with column:
                 allocation_card(name, composition_rows(allocations[name], label))
+    st.subheader('配置的報酬與風險')
+    st.dataframe(stats.round(1).rename_axis('配置').reset_index(), hide_index=True, width='stretch',
+                 column_config={c: st.column_config.NumberColumn(c, format='%.1f%%') for c in stats.columns})
     st.download_button('下載配置比較 CSV', returns.rename_axis('日期').to_csv(float_format='%.1f').encode('utf-8-sig'),
                        file_name=f'taiwan_strategies_{first:%Y%m%d}_{last:%Y%m%d}.csv',
                        mime='text/csv', icon=':material/download:')
