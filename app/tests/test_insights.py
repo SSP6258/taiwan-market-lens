@@ -2,7 +2,7 @@ import json
 from unittest.mock import patch, Mock
 import pandas as pd
 import pytest
-from insights import (MAX_OUTPUT_TOKENS, READ_TIMEOUT_SECONDS, ModelOutputError, ReadableError, ServiceError,
+from insights import (MAX_OUTPUT_TOKENS, SYSTEM_PROMPT, READ_TIMEOUT_SECONDS, ModelOutputError, ReadableError, ServiceError,
                       allocation_facts, market_and_income_facts,
                       monthly_pattern,
                       sharpe_facts,
@@ -342,3 +342,30 @@ def test_portable_input_carries_both_halves_unchanged():
     # Fenced, so the receiving model can tell the instruction from the data.
     fenced = text.split('```json\n')[1].split('\n```')[0]
     assert json.loads(fenced)['basis'] == '還原價格'
+
+# Every entry below is a wrong answer the model actually produced at some point
+# (see WORKLOG). Each rule survives only as long as its counter-example does:
+# compressing the rule to its conclusion is what lets the old error back in.
+GUARDS = [
+    ('兩者相等', '效檔數等於實際檔數曾被讀成「分散完全未發揮作用」'),
+    ('波動率差異', '波動差距曾被歸因於波動率差異而非相關性'),
+    ('僅需', '回撤回復漲幅曾被寫成「僅需上漲 N%」'),
+    ('腰斬', '-20.6% 的回撤曾被寫成「腰斬」'),
+    ('零除息月份數', '邊界漂移的零除息月曾被讀成配息中斷'),
+    ('再平衡', '模型曾把沒發生的再平衡當成已發生'),
+    ('產業鏈', '產業用語曾漏出簡體「产业链」'),
+    ('特定標的的買進', '具體到個股的買賣動作是特許業務的界線'),
+]
+
+
+def test_prompt_keeps_every_counter_example():
+    for needle, why in GUARDS:
+        assert needle in SYSTEM_PROMPT, why
+
+
+def test_framework_headings_are_all_second_level():
+    """The model copies the heading level it is shown, whatever the text claims."""
+    body = SYSTEM_PROMPT.split('## 分析框架')[1]
+    headings = [l for l in body.splitlines() if l.lstrip().startswith('#')]
+    assert headings, 'the framework section lost its headings'
+    assert all(l.startswith('## ') for l in headings), headings
