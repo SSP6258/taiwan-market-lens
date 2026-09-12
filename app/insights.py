@@ -538,7 +538,9 @@ def disclosure(payload, model, expand=None):
             st.warning('目前使用自訂指示。預設指示含有防止模型自行計算、誇大幅度與給出買賣指令的規則，'
                        '移除後產出的內容可能不再受這些限制。')
         st.caption('**數字**｜AI 只看得到這些，不含帳戶或個人資料。')
-        st.json(payload)
+        # Collapsed: expanded, the tree buries the copy control below a screenful of
+        # keys nobody reads line by line. Anyone who wants a value can open a branch.
+        st.json(payload, expanded=False)
         st.caption('點擊按鈕時會再補上 Beta 與配息資料，兩者需要另外向資料來源查詢。')
         _portable(prompt, payload, expand)
     return prompt
