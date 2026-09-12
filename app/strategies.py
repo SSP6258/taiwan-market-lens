@@ -58,6 +58,19 @@ def binding_holding(prices, allocations):
     return symbol, starts[symbol], [n for n, w in allocations.items() if symbol in w.index]
 
 
+def composition_table(allocations, label):
+    """Weights as a matrix: holdings down the side, configurations across the top.
+
+    Laid out this way the difference between two configurations is one row read across,
+    rather than two lists to hold in your head at once. A holding a configuration does not
+    own is left blank, never zero: 0.0% is a real instruction -- keep it on the comparison
+    list but put no money in it -- and the two must not read alike.
+    """
+    frame = pd.DataFrame({name: {label(s): weight * 100 for s, weight in weights.items()}
+                          for name, weights in allocations.items()})
+    return frame.loc[frame.sum(axis=1).sort_values(ascending=False).index]
+
+
 def render_strategies(label, basis, start, end, weights=None, portfolio_name='等權重組合'):
     st.subheader('配置比較')
     st.caption('STRATEGY LAB · 同一段期間、同一個起點，比較不同配置的走勢')
@@ -101,6 +114,14 @@ def render_strategies(label, basis, start, end, weights=None, portfolio_name='�
     st.subheader('配置的報酬與風險')
     st.dataframe(stats.round(1).rename_axis('配置').reset_index(), hide_index=True, width='stretch',
                  column_config={c: st.column_config.NumberColumn(c, format='%.1f%%') for c in stats.columns})
+    st.subheader('各配置的內容')
+    st.caption('依起始比重買進後持有、不再平衡。空白代表該配置沒有這一檔；0.0% 代表列入比較但不投入。'
+               '顯示到小數一位，等分的配置（如衝刺的三分之一）逐欄相加會是 99.9%，'
+               '實際計算用的是未四捨五入的比重。')
+    composition = composition_table(allocations, label)
+    st.dataframe(composition.rename_axis('標的').reset_index(), hide_index=True, width='stretch',
+                 column_config={c: st.column_config.NumberColumn(c, format='%.1f%%')
+                                for c in composition.columns})
     st.download_button('下載配置比較 CSV', returns.rename_axis('日期').to_csv(float_format='%.1f').encode('utf-8-sig'),
                        file_name=f'taiwan_strategies_{first:%Y%m%d}_{last:%Y%m%d}.csv',
                        mime='text/csv', icon=':material/download:')
