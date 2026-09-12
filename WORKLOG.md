@@ -34,7 +34,7 @@
 - 開發分支 `feature/ai-allocation-advisor` 已 fast-forward 併入，可刪
 - **`abandoned/model-fallback` 只存在於原開發機**，從未推送。
   在新 clone 上找不到它——要保留那份程式碼得先 `git push origin abandoned/model-fallback`
-- 測試：**98 passed / 0 failed**（全綠）
+- 測試：**99 passed / 0 failed**（全綠）
 - **HF 免費額度已耗盡（2026-09-12）**，AI 分頁會顯示額度用完並附帳單連結。
   每月初重置，即 2026-10-01；要立即恢復可買 credits（較划算）或升級 PRO（$9／月）。
   在那之前**任何需要實際呼叫模型的驗證都做不了**（見「待驗證」）
@@ -110,11 +110,15 @@ git config --global --add safe.directory 'C:/Data/project/Codex/Codex APP 0908'
 PYTHONIOENCODING=utf-8 ./.venv/Scripts/python.exe -m pytest -q -p no:cacheprovider
 ```
 
-**5. Streamlit 不會重新 import 子模組。**
+**5. Streamlit 不會重新 import 子模組（雲端部署也一樣）。**
 hot-reload 只重跑主腳本，`import` 進來的模組留在 `sys.modules` 快取。
 **新增函式、新增模組、改 import 結構之後一定要重啟服務**，否則會出現
 「Streamlit 顯示的原始碼是新的、實際執行的是舊的」這種極度誤導的 traceback。
 （`app/module_compat.py` 的 `load_renderer` 就是為了對付這件事，但它救不了自己。）
+**雲端自動重新部署走的是同一條路**：只重跑入口腳本、不重載子模組，
+所以新版一旦 import 舊模組沒有的名字，App 會在部署當下整個掛掉（見第三十次）。
+`app/streamlit_app.py` 開頭那份 reload 清單就是為此而存在 ——
+**在既有模組新增頂層名稱又要在入口腳本用到時，記得加一筆。**
 
 **6. HF 額度看不到餘額，只能從行為推。**
 `whoami-v2` 不回傳任何額度或用量欄位，而 huggingface.co/settings/billing 的數字會落後
@@ -260,6 +264,38 @@ system prompt。**評估後決定不做。**
 ---
 
 ## 變更紀錄
+
+### 2026-09-12（第三十次）—— 雲端在部署當下掛掉：熱重載留著舊模組
+
+推上第二十九次之後雲端整個 App 壞掉，traceback 停在
+`app/streamlit_app.py` 第 10 行的 `from market import ... load_frame ...`。
+**推上去的內容是對的**（`origin/main` 的 `market.py` 確實有 `load_frame`、本機冷啟動正常、
+98 測試全過），壞的是部署方式。
+
+**成因就是環境陷阱第 5 條，只是這次發生在雲端。** Streamlit 在程式碼變更時
+只重新執行入口腳本，`sys.modules` 裡的子模組留著不動。
+於是新的主腳本去 import 舊 `market` 還沒有的 `load_frame` → 每次 rerun 都 ImportError，
+要等有人手動 Reboot 才會好。**從外面看，就是「一推上去 App 就死了」。**
+`module_compat` 的 docstring 早就寫明這個情境（"after a running deployment gains new
+arguments"），但它只涵蓋 renderer 的參數；**我新增頂層名稱時沒有想到同一個機制適用。**
+
+**修正不能放進 `module_compat`。** 那個模組自己也是舊的，
+`from module_compat import 新函式` 會在同一個 rerun 以同樣方式失敗。
+只能內嵌在每次都會重新執行的入口腳本裡，而且要在任何 `from ... import` 之前。
+
+現在 `app/streamlit_app.py` 開頭有一份 (模組, 這版新增的名字) 清單，
+缺了就 `importlib.reload`。穩定之後每次 rerun 只是 5 次 `hasattr`，成本可忽略。
+**在既有模組新增頂層名稱、又要在入口腳本用到時，就往那份清單加一筆。**
+
+**測試**：`test_a_running_deployment_heals_a_module_it_has_outgrown`
+刪掉 `correlation.blend_paths` 模擬「比這版更早啟動的行程」，跑 AppTest 要能正常。
+變異驗證把護欄關掉後，錯誤訊息是
+`ImportError: cannot import name 'blend_paths' from 'correlation'` ——
+**與雲端當下的失敗同一形態**，等於同時驗證了診斷與修法。98 → 99 passed。
+
+**教訓**：本機冷啟動全綠、測試全綠，都證明不了熱重載部署會活。
+這條路徑只有「舊行程 + 新腳本」才會走到，而那個組合在開發時不會自然出現 ——
+要嘛刻意模擬，要嘛等它在雲端炸給你看。
 
 ### 2026-09-12（第二十九次）—— 新增「配置比較」分頁
 

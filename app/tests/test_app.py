@@ -345,3 +345,22 @@ def test_strategy_tab_compares_configurations_over_one_window():
         assert sum("共同期間" in str(h.body) for h in app.get("html")) == 1
         pick(app, "segmented_control", "圖表指標").set_value("歷史回撤").run()
         assert not app.exception
+
+
+def test_a_running_deployment_heals_a_module_it_has_outgrown():
+    """Streamlit keeps imported modules across a code change and reruns only the entry
+    script, so a revision that starts using a new name would raise ImportError on every
+    rerun until the process is rebooted by hand. That is what a push to Community Cloud
+    looks like from the outside: the app dies on the deploy that introduced the name.
+    """
+    import correlation
+    original = correlation.blend_paths
+    del correlation.blend_paths  # a process that started before this revision existed
+    try:
+        with patch("market.load_symbol", side_effect=fixture_history):
+            app = new_app().run(timeout=30)
+            assert not app.exception
+        assert hasattr(correlation, "blend_paths")
+    finally:
+        if not hasattr(correlation, "blend_paths"):
+            correlation.blend_paths = original

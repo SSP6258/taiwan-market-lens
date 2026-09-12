@@ -2,6 +2,23 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
+import importlib
+import sys
+
+# A deployment that is already running keeps its imported modules in sys.modules; only this
+# entry script is re-executed when the code changes. So the moment a revision starts using a
+# name its own modules do not have yet, every rerun raises ImportError until someone reboots
+# the process by hand -- which is what a push to Streamlit Cloud looks like from the outside.
+# Reload the modules this revision has outgrown, before importing anything from them.
+# Inline rather than a helper in module_compat: that module would itself be the stale one on
+# the very run that needs the fix.
+for _module_name, _new_name in [("market", "load_frame"), ("lightweight_chart", "COLORS"),
+                                ("correlation", "blend_paths"), ("ui", "plain"),
+                                ("allocation", "PRESETS")]:
+    _stale = sys.modules.get(_module_name)
+    if _stale is not None and not hasattr(_stale, _new_name):
+        importlib.invalidate_caches()
+        importlib.reload(_stale)
 
 import pandas as pd
 from lightweight_chart import render_chart
