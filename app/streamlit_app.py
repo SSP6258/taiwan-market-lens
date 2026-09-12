@@ -7,7 +7,7 @@ import pandas as pd
 from lightweight_chart import render_chart
 import streamlit as st
 
-from market import CATALOG, DEFAULT_SYMBOLS, MAX_SYMBOLS, parse_symbols, load_symbol, compare_prices
+from market import CATALOG, DEFAULT_SYMBOLS, MAX_SYMBOLS, parse_symbols, load_symbol, load_frame, compare_prices
 from securities import load_names
 
 st.set_page_config(page_title="台股比較室 | Taiwan market lens", page_icon=":material/query_stats:", layout="wide")
@@ -18,7 +18,7 @@ st.write("同一起點，看見不同走勢。比較股票與 ETF 的歷史報�
 # Reserved above the tab bar so the period shows once, on every tab, and is filled
 # after the data is loaded below.
 period_slot = st.empty()
-comparison_tab, risk_tab, investment_tab, ai_tab, about_tab = st.tabs(["行情比較", "風險分析", "投資報酬", "AI 深度解讀", "關於與使用說明"], on_change="rerun", key="analysis_tabs")
+comparison_tab, strategy_tab, risk_tab, investment_tab, ai_tab, about_tab = st.tabs(["行情比較", "配置比較", "風險分析", "投資報酬", "AI 深度解讀", "關於與使用說明"], on_change="rerun", key="analysis_tabs")
 with about_tab:
     st.markdown(Path(__file__).with_name("about.md").read_text(encoding="utf-8"))
     st.subheader("資料處理流程")
@@ -149,21 +149,9 @@ with comparison_tab:
         for symbol in symbols:
             load_symbol.clear(symbol, start, end)
 
-    histories, failures, fetched = {}, {}, []
+    field = "Adj Close" if basis.startswith("還原") else "Close"
     with st.spinner("正在取得歷史行情…"):
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            jobs = {pool.submit(load_symbol, s, start, end): s for s in symbols}
-            for job in as_completed(jobs):
-                symbol = jobs[job]
-                try:
-                    history, stamp = job.result()
-                    field = "Adj Close" if basis.startswith("還原") else "Close"
-                    if field not in history or history[field].dropna().empty:
-                        raise ValueError("缺少所選價格基準資料。")
-                    histories[symbol] = history[field]
-                    fetched.append(stamp)
-                except Exception as exc:
-                    failures[symbol] = str(exc)
+        histories, failures, fetched = load_frame(symbols, start, end, field)
     if failures:
         st.warning("下列標的無法載入，未納入比較：" + "、".join(label(s) for s in failures))
         with st.expander("資料問題與處理方式"):
@@ -289,6 +277,13 @@ with comparison_tab:
         """)
     st.caption(f"資料取得時間（台北）：{min(fetched)} · 日線最新共同日期：{last:%Y/%m/%d}")
 
+
+if strategy_tab.open:
+    with strategy_tab:
+        # Its holdings are the presets', not the current selection, so the fetch waits
+        # until the tab is actually opened.
+        from strategies import render_strategies
+        render_strategies(label, basis, start, end, weights, portfolio_name)
 
 if risk_tab.open:
     with risk_tab:

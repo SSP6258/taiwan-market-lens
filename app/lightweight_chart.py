@@ -129,6 +129,7 @@ def chart_series(frame, labels, colors, emphasis=None):
             for s in frame.columns]
 
 
-def render_chart(frame, labels, colors, view, emphasis=None):
+def render_chart(frame, labels, colors, view, emphasis=None, key="performance_chart"):
+    """`key` must differ per chart: two of these on one page share a component registry."""
     series = chart_series(frame, labels, colors, emphasis)
-    return _component(data=dict(series=series, end=frame.index[-1].strftime("%Y-%m-%d"), view=view), key="performance_chart", width="stretch", height="content")
+    return _component(data=dict(series=series, end=frame.index[-1].strftime("%Y-%m-%d"), view=view), key=key, width="stretch", height="content")

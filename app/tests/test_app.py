@@ -235,12 +235,15 @@ def test_risk_tabs_group_and_default_to_correlation():
     with patch("market.load_symbol", side_effect=fixture_history):
         app = new_app().run(timeout=30)
         assert [t.label for t in app.tabs] == [
-            "行情比較", "風險分析", "投資報酬", "AI 深度解讀", "關於與使用說明"]
+            "行情比較", "配置比較", "風險分析", "投資報酬", "AI 深度解讀", "關於與使用說明"]
         app.session_state["analysis_tabs"] = "風險分析"
         app = app.run(timeout=30)
         assert not app.exception
         labels = [t.label for t in app.tabs]
-        assert labels[2:5] == ["相關性與分散效果", "Beta 分析", "夏普分析"]
+        # Positional slices break whenever a tab is inserted anywhere above, which is how
+        # this assertion broke when 配置比較 arrived. Anchor on the parent instead.
+        parent = labels.index("風險分析")
+        assert labels[parent + 1:parent + 4] == ["相關性與分散效果", "Beta 分析", "夏普分析"]
         # Opening the group renders the correlation page itself, not an empty shell.
         assert any(h.value == "一起漲跌，還是彼此分散？" for h in app.subheader)
 
@@ -324,4 +327,21 @@ def test_chart_carries_the_allocation_and_can_drop_it():
                 pick(app, "selectbox", "價格基準").select(setting).run()
             assert not app.exception
         pick(app, "checkbox", "加上「等權重組合」整體走勢").uncheck().run()
+        assert not app.exception
+
+
+def test_strategy_tab_compares_configurations_over_one_window():
+    """The presets hold symbols the current selection does not, so the tab fetches its own
+    and must still put every configuration on a single shared window."""
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app().run(timeout=30)
+        app.session_state["analysis_tabs"] = "配置比較"
+        app = app.run(timeout=60)
+        assert not app.exception
+        assert any(h.value == "配置比較" for h in app.subheader)
+        picked = pick(app, "multiselect", "要比較的配置")
+        assert "衝刺" in picked.value and any(v.startswith("目前配置") for v in picked.value)
+        # One period banner for the whole comparison, not one per configuration.
+        assert sum("共同期間" in str(h.body) for h in app.get("html")) == 1
+        pick(app, "segmented_control", "圖表指標").set_value("歷史回撤").run()
         assert not app.exception

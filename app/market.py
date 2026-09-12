@@ -71,6 +71,29 @@ def load_symbol(symbol: str, start: date, end: date):
     return history, datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M")
 
 
+def load_frame(symbols, start, end, field):
+    """Fetch one price field for many symbols at once.
+
+    Failures come back rather than raising: one delisted or mistyped symbol must not take
+    the rest of the comparison with it, and the caller decides how to say so.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    histories, failures, stamps = {}, {}, []
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        jobs = {pool.submit(load_symbol, s, start, end): s for s in symbols}
+        for job in as_completed(jobs):
+            symbol = jobs[job]
+            try:
+                history, stamp = job.result()
+                if field not in history or history[field].dropna().empty:
+                    raise ValueError("缺少所選價格基準資料。")
+                histories[symbol] = history[field]
+                stamps.append(stamp)
+            except Exception as exc:
+                failures[symbol] = str(exc)
+    return histories, failures, stamps
+
+
 def compare_prices(prices: pd.DataFrame):
     """Use exact shared observations, never forward-fill a suspended security."""
     clean = prices.replace([np.inf, -np.inf], np.nan).where(prices > 0)
