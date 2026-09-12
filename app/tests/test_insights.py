@@ -373,3 +373,18 @@ def test_framework_headings_are_all_second_level():
     headings = [l for l in body.splitlines() if l.lstrip().startswith('#')]
     assert headings, 'the framework section lost its headings'
     assert all(l.startswith('## ') for l in headings), headings
+
+
+def test_every_failure_points_at_the_way_out():
+    """A named fault is only half an answer: the reader still holds a complete payload
+    and no reading of it, so both failure paths must offer the copy route."""
+    from insights import _failure, FALLBACK_NOTE, DISCLOSURE_LABEL, PORTABLE_LABEL, ServiceError
+    for message in [ServiceError('額度用完了'), 'AI 暫時無法回應，請稍後重試。']:
+        with patch('insights.st') as fake:
+            _failure(message)
+        assert fake.warning.call_count == 1
+        fake.info.assert_called_once_with(FALLBACK_NOTE)
+    # The note names two controls by label; renaming either without updating the other
+    # would leave the reader hunting for a button that no longer exists.
+    assert DISCLOSURE_LABEL in FALLBACK_NOTE and PORTABLE_LABEL in FALLBACK_NOTE
+    assert '](https://www.google.com/finance/' in FALLBACK_NOTE

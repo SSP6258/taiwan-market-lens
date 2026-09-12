@@ -478,6 +478,27 @@ MODEL_NOTES = {
 }
 
 
+DISCLOSURE_LABEL = '送給 AI 的完整內容（指示與數字）'
+PORTABLE_LABEL = '取得完整輸入（含 Beta 與配息）'
+GOOGLE_FINANCE = 'https://www.google.com/finance/?hl=zh-TW'
+
+# Whatever went wrong, the reader still has a complete set of numbers and no reading of
+# them, so naming the fault is only half an answer: point at the way out as well.
+FALLBACK_NOTE = (
+    f'**數字不受影響，可以自己拿去解讀。** 展開上方「{DISCLOSURE_LABEL}」，'
+    f'按「{PORTABLE_LABEL}」複製整份指示與數字，'
+    '貼到你慣用的 AI（ChatGPT、Gemini、Claude 等）就能得到同一份解讀。'
+    f'想直接查行情可用 [Google 財經]({GOOGLE_FINANCE})。'
+)
+
+
+def _failure(message):
+    """Both failure paths render through here so neither can lose the way out."""
+    from ui import plain
+    st.warning(plain(message))
+    st.info(FALLBACK_NOTE)
+
+
 def model_note(model):
     return MODEL_NOTES.get(model.split(':')[0])
 
@@ -500,7 +521,7 @@ def disclosure(payload, model, expand=None):
         st.caption(note)
     st.caption('模型不做任何計算。下方數字全部由本程式算好後才送出，模型只負責轉成文字。')
     prompt = active_prompt()
-    with st.expander('送給 AI 的完整內容（指示與數字）'):
+    with st.expander(DISCLOSURE_LABEL):
         st.caption('**指示**｜決定 AI 用什麼角度解讀、哪些話不准講。可以修改後重新產生。'
                '新增的規則若與既有段落牴觸，模型通常會服從份量較重的那邊；'
                '要讓新規則生效，多半得改寫或刪掉衝突的部分，而不是附加在後面。')
@@ -530,7 +551,7 @@ def _portable(prompt, payload, expand):
     key = hashlib.sha256(payload.encode()).hexdigest()
     ready = st.session_state.get('portable_body')
     if expand is not None and (ready is None or ready['key'] != key):
-        if not st.button('取得完整輸入（含 Beta 與配息）', key='build_portable', width='stretch'):
+        if not st.button(PORTABLE_LABEL, key='build_portable', width='stretch'):
             return
         with st.spinner('正在取得 Beta 與配息資料…'):
             ready = {'key': key, 'text': expand()}
@@ -567,10 +588,9 @@ def ai_panel(payload, expand=None):
             cache[key] = {'text': text, 'model': model, 'custom': prompt != SYSTEM_PROMPT}
             entry = cache[key]  # Already on screen from the stream; do not draw it twice.
         except ReadableError as exc:
-            from ui import plain
-            st.warning(plain(exc))
+            _failure(exc)
         except (requests.RequestException, ValueError, KeyError, IndexError):
-            st.warning('AI 暫時無法回應，請稍後重試。圖表與數據解讀不受影響。')
+            _failure('AI 暫時無法回應，請稍後重試。圖表與數據解讀不受影響。')
     elif key in cache:
         entry = cache[key]
         st.markdown(entry['text'])
