@@ -308,3 +308,20 @@ def test_common_period_names_only_the_binding_symbol():
         assert "00662 富邦NASDAQ：資料自" in notice
         assert "009816" not in notice
         assert "限制共同迄日" not in notice
+
+
+def test_chart_carries_the_allocation_and_can_drop_it():
+    """The blend is drawn from the sidebar weights, so it has to survive the same two
+    switches the holdings do: the drawdown view and the price basis."""
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app().run(timeout=30)
+        blend = pick(app, "checkbox", "加上「等權重組合」整體走勢")
+        assert blend.value is True
+        for control, setting in [("segmented_control", "歷史回撤"), ("selectbox", "收盤價（未還原）")]:
+            if control == "segmented_control":
+                pick(app, "segmented_control", "圖表指標").set_value(setting).run()
+            else:
+                pick(app, "selectbox", "價格基準").select(setting).run()
+            assert not app.exception
+        pick(app, "checkbox", "加上「等權重組合」整體走勢").uncheck().run()
+        assert not app.exception

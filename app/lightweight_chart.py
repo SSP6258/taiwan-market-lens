@@ -60,7 +60,7 @@ export default function({parentElement, data}) {
   };
   for (const item of data.series) {
     const series = chart.addSeries(L.LineSeries, {
-      color:item.color,lineWidth:2,lineStyle:0,priceLineVisible:false,lastValueVisible:false,
+      color:item.color,lineWidth:item.width ?? 2,lineStyle:0,priceLineVisible:false,lastValueVisible:false,
       crosshairMarkerRadius:4,priceFormat:{type:'custom',minMove:.1,formatter:fmt},
     });
     series.setData(item.points);
@@ -100,6 +100,8 @@ _vendor = (Path(__file__).parent / "vendor/lightweight-charts-5.0.9.js").read_te
 _component = st.components.v2.component("taiwan_lightweight_chart", html=HTML, css=CSS, js=_vendor + "\n" + JS)
 
 
-def render_chart(frame, labels, colors, view):
-    series = [dict(name=labels[s], color=colors[s], points=[dict(time=t.strftime("%Y-%m-%d"), value=float(v)) for t, v in frame[s].items()]) for s in frame.columns]
+def render_chart(frame, labels, colors, view, emphasis=None):
+    """`emphasis` names one column to draw heavier -- the blend is not a holding, and a
+    reader scanning twelve identical lines has no other cue that one of them is the total."""
+    series = [dict(name=labels[s], color=colors[s], width=3 if s == emphasis else 2, points=[dict(time=t.strftime("%Y-%m-%d"), value=float(v)) for t, v in frame[s].items()]) for s in frame.columns]
     return _component(data=dict(series=series, end=frame.index[-1].strftime("%Y-%m-%d"), view=view), key="performance_chart", width="stretch", height="content")

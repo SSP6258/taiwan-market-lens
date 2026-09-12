@@ -225,6 +225,8 @@ with comparison_tab:
     # Stable color identities across selection changes.
     colors = ["#3B9EFF", "#FF922B", "#D0A2FF", "#FFE14A", "#FF5263", "#35E0CE",
               "#C0ED55", "#FF80CB", "#F5F7FA", "#BCA383", "#90A4C2", "#00C853"]
+    # Outside the holding palette on purpose: the blend is a different kind of thing.
+    BLEND_COLOR = "#FFFFFF"
     original_style_order = ["009828.TW"] + DEFAULT_SYMBOLS
     style_order = original_style_order + [s for s in CATALOG if s not in original_style_order]
     style_ids = {s: i for i, s in enumerate(style_order)}
@@ -249,8 +251,24 @@ with comparison_tab:
         else:
             st.caption("累積漲跌幅：以共同起始日為 0.0%，觀察至各日的漲跌。想知道從高點曾跌多深，可切換「歷史回撤」。")
         chart_data = drawdown if view == "歷史回撤" else returns
-        render_chart(chart_data, {s: label(s) for s in chart_data.columns},
-                     {s: colors[slots[s]] for s in chart_data.columns}, view)
+        emphasis = None
+        # The weights describe the full selection; a failed fetch leaves the chart with
+        # fewer holdings than the allocation, and renormalising silently would draw a
+        # blend nobody chose. Say so instead.
+        if set(weights.index) == set(returns.columns):
+            if st.checkbox(f"加上「{portfolio_name}」整體走勢", value=True, key="chart_show_blend",
+                           help="依側邊欄的起始比重持有、不再平衡，與各標的同一個起始日。"):
+                from correlation import blend_paths
+                blend_return, blend_drawdown = blend_paths(aligned, weights)
+                chart_data = chart_data.copy()
+                chart_data[portfolio_name] = blend_drawdown if view == "歷史回撤" else blend_return
+                emphasis = portfolio_name
+        else:
+            missing = ", ".join(sorted(set(weights.index) - set(returns.columns)))
+            st.caption(f"部分標的沒有行情（{missing}），比重無法對應目前圖上的標的，暫不繪製組合走勢。")
+        render_chart(chart_data, {s: label(s) if s != emphasis else s for s in chart_data.columns},
+                     {s: colors[slots[s]] if s != emphasis else BLEND_COLOR for s in chart_data.columns},
+                     view, emphasis)
 
     st.subheader("報酬與風險")
     st.caption("手機可左右滑動表格查看所有欄位，也可下載 CSV。")
@@ -261,6 +279,10 @@ with comparison_tab:
     with st.expander("計算方式與資料說明"):
         st.markdown("""
         - **累積漲跌幅**＝（當日價格 ÷ 共同起始日價格 − 1）× 100%。CSV 匯出相同數值。
+        - **組合走勢**＝依側邊欄起始比重買進後持有、不再平衡的加權淨值，與各標的同一個起始日。
+          它的**回撤是用組合自身的走勢高點算的，不是各檔回撤的加權平均** ——
+          各檔在不同日子見高點，加權平均會把回撤誇大。組合線不隨圖例增減標的而改變，
+          只跟側邊欄的比重有關；CSV 匯出目前僅含各標的，不含組合。
         - **最大回撤**＝共同交易日價格相對於該區間先前最高價的最大跌幅。
         - **年化報酬**按實際日曆天數換算；不足一年不顯示，避免短期外推。
         - **年化波動**＝各檔每日報酬的樣本標準差 × √252；資料缺漏不補值。

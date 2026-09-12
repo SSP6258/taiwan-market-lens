@@ -31,6 +31,16 @@ def portfolio_stats(segment, weights, portfolio_name='等權重組合'):
     return portfolio, volatility, drawdown
 
 
+def blend_paths(segment, weights):
+    """The blend drawn on the same basis compare_prices uses for each holding:
+    cumulative return from the shared first day, and drawdown from its own running peak.
+
+    Built on portfolio_stats' wealth path rather than a seventh NAV of its own.
+    """
+    wealth = portfolio_stats(segment, weights)[0]
+    return (wealth - 1) * 100, (wealth / wealth.cummax() - 1) * 100
+
+
 def render_analysis(prices, label, basis, weights=None, portfolio_name='等權重組合'):
     st.subheader("一起漲跌，還是彼此分散？")
     st.caption("DIVERSIFICATION LAB · 每日報酬相關性與等權重持有試算")
