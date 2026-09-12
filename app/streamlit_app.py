@@ -3,22 +3,63 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 import importlib
+import os
 import sys
 
-# A deployment that is already running keeps its imported modules in sys.modules; only this
-# entry script is re-executed when the code changes. So the moment a revision starts using a
-# name its own modules do not have yet, every rerun raises ImportError until someone reboots
-# the process by hand -- which is what a push to Streamlit Cloud looks like from the outside.
-# Reload the modules this revision has outgrown, before importing anything from them.
+# A deployment that is already running keeps its imported modules in sys.modules; only
+# this entry script is re-executed when the code changes. Every rerun then mixes new script
+# with old modules, and the app dies on the deploy that introduced the difference -- an
+# ImportError for a name that does not exist yet, or a TypeError for an argument a function
+# has not grown. Naming what changed does not work: the sentinel has to be updated by hand
+# every time, and the revision that forgets is the revision that breaks.
+#
+# So nothing is named. Python stamps the source's timestamp into the cached bytecode it
+# writes at import; a git pull into a live deployment replaces the source and leaves that
+# stamp behind. Modules whose stamp no longer matches their source are reloaded, which also
+# rewrites the stamp, so this settles by itself. A module nobody replaced is never touched.
+#
 # Inline rather than a helper in module_compat: that module would itself be the stale one on
 # the very run that needs the fix.
-for _module_name, _new_name in [("market", "load_frame"), ("lightweight_chart", "COLORS"),
-                                ("correlation", "blend_paths"), ("ui", "plain"),
-                                ("allocation", "PRESETS")]:
-    _stale = sys.modules.get(_module_name)
-    if _stale is not None and not hasattr(_stale, _new_name):
-        importlib.invalidate_caches()
-        importlib.reload(_stale)
+# Leaves first: reloading a module leaves anything that imported it holding the old objects.
+_RELOAD_ORDER = ["ui", "securities", "market", "lightweight_chart", "correlation",
+                 "allocation", "module_compat", "sharpe_analysis", "beta_analysis",
+                 "investment", "insights", "strategies"]
+
+
+def _replaced_since_import(module):
+    """True when the file on disk is not the file this module was built from."""
+    source, cached = getattr(module, "__file__", None), getattr(module, "__cached__", None)
+    if not source or not cached:
+        return False  # without cached bytecode there is nothing to compare against
+    try:
+        with open(cached, "rb") as handle:
+            header = handle.read(12)
+        stamped = int.from_bytes(header[8:12], "little")
+        return len(header) == 12 and stamped != int(os.path.getmtime(source)) & 0xFFFFFFFF
+    except OSError:
+        return False
+
+
+def _refresh_replaced_modules():
+    app_dir = str(Path(__file__).resolve().parent)
+    stale = [name for name, module in list(sys.modules.items())
+             if name != "__main__"
+             and (getattr(module, "__file__", None) or "").startswith(app_dir)
+             and _replaced_since_import(module)]
+    if not stale:
+        return
+    importlib.invalidate_caches()
+    for name in sorted(stale, key=lambda n: (_RELOAD_ORDER.index(n) if n in _RELOAD_ORDER
+                                             else len(_RELOAD_ORDER), n)):
+        try:
+            importlib.reload(sys.modules[name])
+        except Exception:
+            # A module that cannot be refreshed is not worth taking the whole app down for;
+            # the import below will raise something the traceback can actually explain.
+            pass
+
+
+_refresh_replaced_modules()
 
 import pandas as pd
 from lightweight_chart import render_chart

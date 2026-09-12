@@ -1,3 +1,4 @@
+import inspect
 from pathlib import Path
 from unittest.mock import patch
 import pandas as pd
@@ -347,15 +348,28 @@ def test_strategy_tab_compares_configurations_over_one_window():
         assert not app.exception
 
 
-def test_a_running_deployment_heals_a_module_it_has_outgrown():
-    """Streamlit keeps imported modules across a code change and reruns only the entry
-    script, so a revision that starts using a new name would raise ImportError on every
-    rerun until the process is rebooted by hand. That is what a push to Community Cloud
-    looks like from the outside: the app dies on the deploy that introduced the name.
+def _deployed_over(module):
+    """What a git pull into a live deployment does: the source on disk is replaced while
+    the process keeps the module it built from the old one.
+
+    The stamp Python writes into cached bytecode has one-second resolution, so the new time
+    is set well clear of the old one rather than to `now` -- two of these tests in the same
+    second would otherwise leave the file looking untouched.
     """
+    import os
+    moved_on = os.path.getmtime(module.__file__) + 10
+    os.utime(module.__file__, (moved_on, moved_on))
+
+
+def test_a_running_deployment_heals_a_module_that_lost_a_name():
+    """Streamlit keeps imported modules across a code change and reruns only the entry
+    script, so a revision that starts using a new name raises ImportError on every rerun
+    until the process is rebooted by hand. From the outside the app simply dies on the
+    deploy that introduced the name."""
     import correlation
     original = correlation.blend_paths
-    del correlation.blend_paths  # a process that started before this revision existed
+    del correlation.blend_paths
+    _deployed_over(correlation)
     try:
         with patch("market.load_symbol", side_effect=fixture_history):
             app = new_app().run(timeout=30)
@@ -364,3 +378,34 @@ def test_a_running_deployment_heals_a_module_it_has_outgrown():
     finally:
         if not hasattr(correlation, "blend_paths"):
             correlation.blend_paths = original
+
+
+def test_a_running_deployment_heals_a_function_that_lost_an_argument():
+    """The failure that got past the first version of this guard: nothing was missing, so
+    looking for a missing name found nothing to do. render_chart had merely grown a `key`
+    argument and the call raised TypeError. The guard must not depend on knowing what
+    changed -- only that the file is no longer the one the module was built from."""
+    import correlation
+    original = correlation.blend_paths
+    correlation.blend_paths = lambda segment: original(segment)  # one argument short
+    _deployed_over(correlation)
+    try:
+        with patch("market.load_symbol", side_effect=fixture_history):
+            app = new_app().run(timeout=30)
+            assert not app.exception
+        assert len(inspect.signature(correlation.blend_paths).parameters) == 2
+    finally:
+        if len(inspect.signature(correlation.blend_paths).parameters) != 2:
+            correlation.blend_paths = original
+
+
+def test_a_module_nobody_replaced_is_left_alone():
+    """Reloading indiscriminately would undo anything the process had set up on those
+    modules -- the first attempt at this guard reloaded everything on its first run and
+    broke a test's patched fetcher."""
+    import correlation
+    marker = correlation.blend_paths
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app().run(timeout=30)
+        assert not app.exception
+    assert correlation.blend_paths is marker

@@ -37,7 +37,7 @@
 - 開發分支 `feature/ai-allocation-advisor` 已 fast-forward 併入，可刪
 - **`abandoned/model-fallback` 只存在於原開發機**，從未推送。
   在新 clone 上找不到它——要保留那份程式碼得先 `git push origin abandoned/model-fallback`
-- 測試：**99 passed / 0 failed**（全綠）
+- 測試：**101 passed / 0 failed**（全綠）
 - **HF 免費額度已耗盡（2026-09-12）**，AI 分頁會顯示額度用完並附帳單連結。
   每月初重置，即 2026-10-01；要立即恢復可買 credits（較划算）或升級 PRO（$9／月）。
   在那之前**任何需要實際呼叫模型的驗證都做不了**（見「待驗證」）
@@ -120,8 +120,9 @@ hot-reload 只重跑主腳本，`import` 進來的模組留在 `sys.modules` 快
 （`app/module_compat.py` 的 `load_renderer` 就是為了對付這件事，但它救不了自己。）
 **雲端自動重新部署走的是同一條路**：只重跑入口腳本、不重載子模組，
 所以新版一旦 import 舊模組沒有的名字，App 會在部署當下整個掛掉（見第三十次）。
-`app/streamlit_app.py` 開頭那份 reload 清單就是為此而存在 ——
-**在既有模組新增頂層名稱又要在入口腳本用到時，記得加一筆。**
+`app/streamlit_app.py` 開頭的 `_refresh_replaced_modules()` 就是為此而存在：
+比對 `.pyc` 標頭裡的原始碼戳記與磁碟上的檔案，對不上就 reload。
+**不需要維護任何名單**（第三十次用哨兵名單的版本擋不到「函式多一個參數」，見第三十一次）。
 
 **6. HF 額度看不到餘額，只能從行為推。**
 `whoami-v2` 不回傳任何額度或用量欄位，而 huggingface.co/settings/billing 的數字會落後
@@ -267,6 +268,44 @@ system prompt。**評估後決定不做。**
 ---
 
 ## 變更紀錄
+
+### 2026-09-12（第三十一次）—— 第三十次的護欄修錯了：哨兵法擋不到「多一個參數」
+
+第三十次推上去之後雲端**換一種方式壞掉**：不再是 ImportError，改成
+`TypeError`，停在 `render_chart(..., key='strategy_chart')`。
+
+**護欄的哨兵選錯了。** 我用 `hasattr(lightweight_chart, "COLORS")` 判斷模組新舊，
+但 `COLORS` 是前一個 commit（`40e780c`）加的，`key=` 參數是下一個 commit（`87e415b`）加的。
+雲端那個行程**有 `COLORS`、沒有 `key=`** → `hasattr` 通過 → 不重載 → 呼叫時 TypeError。
+
+**真正的問題不是哨兵挑錯，是哨兵法本身。** 它要求每次改動都有人記得更新名單，
+而「忘記更新的那一版」正好就是會壞掉的那一版 —— 這個設計把正確性押在人的記性上。
+`module_compat.load_renderer` 用 `inspect.signature` 檢查參數，涵蓋面比 `hasattr` 廣，
+但一樣要逐個指定要檢查什麼。
+
+**改成不指定任何東西。** Python 在 import 時會把原始碼的時間戳寫進 `.pyc` 標頭；
+git pull 換掉原始碼之後，那個戳記就跟磁碟上的檔案對不上。
+凡是對不上的模組就 reload，而 reload 會重寫戳記，所以**會自己收斂**。
+沒被換過的模組完全不碰 —— 這點很重要，見下。
+
+**走過的彎路**：中間版本改成「第一次執行就把所有第一方模組全部重載」，
+結果打爛 `test_app_controls_and_empty_state` ——
+**把測試 patch 掉的 `market.load_symbol` 一併還原了**，變成真的去打網路。
+`test_a_module_nobody_replaced_is_left_alone` 就是為了鎖住這件事：
+無差別重載會撤銷行程在那些模組上做過的任何設定。
+
+**踩到的精度問題**：`.pyc` 的戳記是**秒**為單位。兩個測試在同一秒內各自
+`os.utime(path, None)` 會看起來像沒動過，所以測試改成把 mtime 明確推開 10 秒。
+生產環境不會遇到（git pull 距離 import 遠不止一秒），但寫測試時會。
+
+**測試**：三個 —— 少了名字要能救回、少了參數要能救回、沒被換過的模組不可被碰。
+變異驗證把護欄關掉後，錯誤是
+`TypeError: <lambda>() takes 1 positional argument but 2 were given`，
+**與雲端當下的失敗同一形態**。99 → 101 passed。
+
+**教訓**：第三十次我寫「以後同類改動會自癒」，但只驗證了 ImportError 那一種形態，
+沒驗證「函式簽名改變」。**修好一種失敗形態不等於修好那個類別** ——
+當時如果多想一步「除了少名字，還可能怎麼不相容」，就會發現哨兵法不夠。
 
 ### 2026-09-12（第三十次）—— 雲端在部署當下掛掉：熱重載留著舊模組
 
