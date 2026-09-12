@@ -16,10 +16,12 @@
 
 **最後更新：2026-09-12**
 
-- 分支：`main`，**領先 `origin/main` 3 個 commit，尚未推送**
-  （`5256cf4` 狀態同步、`4f3673f` prompt 六段框架、`e663986` 額度歸因更正）。
-  雲端跑的仍是 `c44d0ec`，**新 prompt 還沒上線**；推送會觸發自動重新部署
-- 上次部署：6 個 commit 於 2026-09-12 推送（`17a8d10..c44d0ec`）
+- 分支：`main`，已與 `origin/main` 同步於 `acf1a8a`
+- **已部署**：7 個 commit 於 2026-09-12 推送（`c44d0ec..acf1a8a`），Streamlit Cloud 自動重新部署。
+  內容是六段 prompt、402 訊息的兩次修正、`ui.plain()`，以及 WORKLOG 本身。
+  **沒有動任何設定格式**，雲端 Secrets 不需要跟著改
+- **雲端與本機共用同一把 token**，所以額度耗盡期間雲端的 AI 按鈕一樣點不動；
+  新 prompt 是否真的生效，要等額度恢復才驗得到（見「待驗證」）
 - 雲端 Secrets（`HF_TOKEN` / `HF_MODEL`）已由使用者於 App settings 設定；
   `HF_MODEL` 維持 `zai-org/GLM-4.7:fastest`，這批改動沒有動到任何設定格式
 - 開發分支 `feature/ai-allocation-advisor` 已 fast-forward 併入，可刪
