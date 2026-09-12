@@ -138,8 +138,8 @@ class ServiceError(ReadableError):
 STATUS_REASONS = {
     401: '金鑰無效或已撤銷。請在 Hugging Face 重新產生 token 並更新 HF_TOKEN。',
     403: '金鑰權限不足。產生 token 時需勾選「Make calls to Inference Providers」。',
-    402: ('Hugging Face 的每月免費額度已用完。額度於每月初重置；'
-          '要立即恢復需購買 credits 或升級 PRO（每月 $2 額度）。'
+    402: ('Hugging Face 的每月免費額度已用完（每月 $0.10）。額度於每月初重置；'
+          '要立即恢復可購買 credits，或升級 PRO（訂閱 $9／月，含 $2 額度）。'
           '用量與帳單：huggingface.co/settings/billing'),
     429: '呼叫過於頻繁，供應商暫時限流。稍等一兩分鐘再試。',
 }

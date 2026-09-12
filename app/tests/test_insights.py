@@ -300,6 +300,10 @@ def test_depleted_credits_says_so_instead_of_suggesting_a_retry():
     assert '免費額度已用完' in str(caught.value)
     assert isinstance(caught.value, ReadableError)
     response.raise_for_status.assert_not_called()
+    # A reader once took the included credit for the subscription price, so the
+    # message has to carry both numbers and say which is which.
+    assert '$9' in str(caught.value) and '$2' in str(caught.value)
+    assert '稍後重試' not in str(caught.value)
 
 
 def test_bad_token_and_rate_limit_are_told_apart():
