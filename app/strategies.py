@@ -14,6 +14,8 @@ from market import compare_prices, load_frame
 from ui import period_banner
 
 CURRENT = '目前配置'
+# Cards per row on the composition strip; see render_strategies for why it is not one row.
+PER_ROW = 3
 
 
 def allocation_table(current_weights=None, current_name=None):
@@ -58,17 +60,20 @@ def binding_holding(prices, allocations):
     return symbol, starts[symbol], [n for n, w in allocations.items() if symbol in w.index]
 
 
-def composition_table(allocations, label):
-    """Weights as a matrix: holdings down the side, configurations across the top.
+def percent(value):
+    """50% rather than 50.0%, but a third of a portfolio still needs its decimal."""
+    text = f'{value:.1f}'
+    return (text[:-2] if text.endswith('.0') else text) + '%'
 
-    Laid out this way the difference between two configurations is one row read across,
-    rather than two lists to hold in your head at once. A holding a configuration does not
-    own is left blank, never zero: 0.0% is a real instruction -- keep it on the comparison
-    list but put no money in it -- and the two must not read alike.
+
+def composition_rows(weights, label):
+    """The holdings of one configuration, heaviest first.
+
+    A holding set to 0% is still listed: it is on the comparison list deliberately, and
+    leaving it out would make the configuration look like it was never considered.
     """
-    frame = pd.DataFrame({name: {label(s): weight * 100 for s, weight in weights.items()}
-                          for name, weights in allocations.items()})
-    return frame.loc[frame.sum(axis=1).sort_values(ascending=False).index]
+    ordered = weights.sort_values(ascending=False, kind='stable')
+    return [(label(symbol), percent(weight * 100)) for symbol, weight in ordered.items()]
 
 
 def render_strategies(label, basis, start, end, weights=None, portfolio_name='等權重組合'):
@@ -115,13 +120,17 @@ def render_strategies(label, basis, start, end, weights=None, portfolio_name='�
     st.dataframe(stats.round(1).rename_axis('配置').reset_index(), hide_index=True, width='stretch',
                  column_config={c: st.column_config.NumberColumn(c, format='%.1f%%') for c in stats.columns})
     st.subheader('各配置的內容')
-    st.caption('依起始比重買進後持有、不再平衡。空白代表該配置沒有這一檔；0.0% 代表列入比較但不投入。'
-               '顯示到小數一位，等分的配置（如衝刺的三分之一）逐欄相加會是 99.9%，'
-               '實際計算用的是未四捨五入的比重。')
-    composition = composition_table(allocations, label)
-    st.dataframe(composition.rename_axis('標的').reset_index(), hide_index=True, width='stretch',
-                 column_config={c: st.column_config.NumberColumn(c, format='%.1f%%')
-                                for c in composition.columns})
+    st.caption('依起始比重買進後持有、不再平衡。比重顯示到小數一位，'
+               '等分的配置（如衝刺的三分之一）相加會是 99.9%，實際計算用未四捨五入的值。')
+    from ui import allocation_card
+    # Three across, wrapping. Six cards fit the width only by breaking the holding names one
+    # character per line: at this page's real content width each card would be about 85px.
+    for start in range(0, len(chosen), PER_ROW):
+        batch = chosen[start:start + PER_ROW]
+        # Pad the last row so two cards do not stretch to half the page each.
+        for column, name in zip(st.columns(PER_ROW, border=True), batch):
+            with column:
+                allocation_card(name, composition_rows(allocations[name], label))
     st.download_button('下載配置比較 CSV', returns.rename_axis('日期').to_csv(float_format='%.1f').encode('utf-8-sig'),
                        file_name=f'taiwan_strategies_{first:%Y%m%d}_{last:%Y%m%d}.csv',
                        mime='text/csv', icon=':material/download:')

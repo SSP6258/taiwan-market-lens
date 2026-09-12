@@ -51,3 +51,21 @@ def plain(text):
     price should not have to know about it.
     """
     return str(text).replace('$', chr(92) + '$')
+
+
+_ALLOCATION = ('font-size:13px;line-height:1.9', 'color:#94a3b8;font-size:12px;'
+               'letter-spacing:.5px;margin-bottom:6px',
+               'display:flex;gap:10px;justify-content:space-between;align-items:baseline',
+               'overflow-wrap:anywhere', 'font-variant-numeric:tabular-nums;white-space:nowrap')
+
+
+def allocation_card(title, rows):
+    """One allocation on its own: holdings down the card, weight against each.
+
+    The weight is pushed to the right edge rather than trailing the name, so the column of
+    figures lines up and can be read without the names getting in the way.
+    """
+    body, heading, row, name, value = _ALLOCATION
+    items = ''.join(f'<div style="{row}"><span style="{name}">{escape(str(n))}</span>'
+                    f'<span style="{value}">{escape(str(v))}</span></div>' for n, v in rows)
+    st.html(f'<div style="{body}"><div style="{heading}">{escape(str(title))}</div>{items}</div>')

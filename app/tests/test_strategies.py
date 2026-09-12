@@ -62,30 +62,32 @@ def _label(symbol):
     return symbol.upper()
 
 
-def test_composition_puts_every_configuration_side_by_side():
-    from strategies import composition_table
-    frame = composition_table({'x': pd.Series({'a': .5, 'b': .5}),
-                               'y': pd.Series({'a': 1.0})}, _label)
-    assert list(frame.columns) == ['x', 'y']
-    assert set(frame.index) == {'A', 'B'}
-    assert frame.loc['A', 'y'] == 100.0
-    # Every column is a whole allocation, so each must still add up to 100%.
-    assert [round(v, 6) for v in frame.sum()] == [100.0, 100.0]
+def test_a_weight_reads_as_written_not_as_stored():
+    """50% rather than 50.0%; a third of a portfolio still needs the decimal it has."""
+    from strategies import percent
+    assert percent(50.0) == '50%'
+    assert percent(100 / 3) == '33.3%'
+    assert percent(0.0) == '0%'
+    assert percent(12.5) == '12.5%'
 
 
-def test_a_holding_a_configuration_does_not_own_stays_blank():
-    """0.0% is an instruction -- keep it on the comparison list, put no money in it -- and
-    must not read the same as a holding the configuration simply does not have."""
-    from strategies import composition_table
-    frame = composition_table({'holds none of b': pd.Series({'a': 1.0}),
-                               'holds zero of b': pd.Series({'a': 1.0, 'b': 0.0})}, _label)
-    assert pd.isna(frame.loc['B', 'holds none of b'])
-    assert frame.loc['B', 'holds zero of b'] == 0.0
+def test_a_configuration_lists_its_largest_position_first():
+    from strategies import composition_rows
+    rows = composition_rows(pd.Series({'a': .2, 'b': .5, 'c': .3}), str.upper)
+    assert rows == [('B', '50%'), ('C', '30%'), ('A', '20%')]
 
 
-def test_the_largest_positions_come_first():
-    """A reader scanning for what a configuration is mostly made of should not have to look
-    for it in alphabetical order."""
-    from strategies import composition_table
-    frame = composition_table({'x': pd.Series({'aaa': .1, 'zzz': .9})}, _label)
-    assert list(frame.index) == ['ZZZ', 'AAA']
+def test_a_holding_set_to_zero_is_still_listed():
+    """0% is a decision -- on the comparison list, no money in it. Dropping the row would
+    make the configuration look like the holding was never considered."""
+    from strategies import composition_rows
+    rows = composition_rows(pd.Series({'a': 1.0, 'b': 0.0}), str.upper)
+    assert rows == [('A', '100%'), ('B', '0%')]
+
+
+def test_every_configuration_still_adds_up():
+    """Each card is a whole allocation; the presets are typed by hand and a digit dropped
+    here would show as a plausible-looking card that quietly invests less than everything."""
+    from strategies import allocation_table
+    for name, weights in allocation_table().items():
+        assert round(weights.sum(), 9) == 1.0, name

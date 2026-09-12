@@ -340,11 +340,17 @@ def test_strategy_tab_compares_configurations_over_one_window():
         app = app.run(timeout=60)
         assert not app.exception
         assert any(h.value == "配置比較" for h in app.subheader)
-        picked = pick(app, "multiselect", "要比較的配置")
-        assert "衝刺" in picked.value and any(v.startswith("目前配置") for v in picked.value)
+        chosen = list(pick(app, "multiselect", "要比較的配置").value)
+        assert "衝刺" in chosen and any(v.startswith("目前配置") for v in chosen)
+        blocks = "".join(str(h.body) for h in app.get("html"))
         # One period banner for the whole comparison, not one per configuration.
-        assert sum("共同期間" in str(h.body) for h in app.get("html")) == 1
-        pick(app, "segmented_control", "圖表指標").set_value("歷史回撤").run()
+        assert blocks.count("共同期間") == 1
+        # Every chosen configuration gets its own card, with its holdings and weights.
+        for configuration in chosen:
+            assert configuration in blocks
+        assert "00984B" in blocks and "50%" in blocks
+        # run() returns the next app; the previous one's elements no longer resolve.
+        app = pick(app, "segmented_control", "圖表指標").set_value("歷史回撤").run()
         assert not app.exception
 
 
