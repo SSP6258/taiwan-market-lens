@@ -20,8 +20,13 @@
 - **已部署**：7 個 commit 於 2026-09-12 推送（`c44d0ec..acf1a8a`），Streamlit Cloud 自動重新部署。
   內容是六段 prompt、402 訊息的兩次修正、`ui.plain()`，以及 WORKLOG 本身。
   **沒有動任何設定格式**，雲端 Secrets 不需要跟著改
-- **雲端與本機共用同一把 token**，所以額度耗盡期間雲端的 AI 按鈕一樣點不動；
-  新 prompt 是否真的生效，要等額度恢復才驗得到（見「待驗證」）
+- **雲端與本機用的是兩把不同的 token，但額度仍然共用** ——
+  HF 的免費額度是**綁帳號不是綁 token**（官方定價頁：Every Hugging Face *user*
+  receives monthly credits，Free Users $0.10）。
+  雲端另產一把的價值是可以單獨撤銷，不是多一份額度。
+  所以額度耗盡期間雲端的 AI 按鈕一樣點不動，
+  新 prompt 是否真的生效要等額度恢復才驗得到（見「待驗證」）。
+  例外：若雲端那把來自**另一個 HF 帳號**，它有自己的 $0.10 —— 按一次按鈕就知道
 - 雲端 Secrets（`HF_TOKEN` / `HF_MODEL`）已由使用者於 App settings 設定；
   `HF_MODEL` 維持 `zai-org/GLM-4.7:fastest`，這批改動沒有動到任何設定格式
 - 開發分支 `feature/ai-allocation-advisor` 已 fast-forward 併入，可刪
@@ -123,7 +128,8 @@ hot-reload 只重跑主腳本，`import` 進來的模組留在 `sys.modules` 快
 **7. 雲端部署不會帶上 `secrets.toml`。**
 `.streamlit/secrets.toml` 在 `.gitignore` 裡（正確）。
 部署後要去 Streamlit Cloud 的 App settings → Secrets 手動貼一次。
-建議雲端另外產一把 token，方便單獨撤銷。
+建議雲端另外產一把 token，方便單獨撤銷 —— **但那不會多一份額度**，
+免費額度綁的是帳號不是 token，同帳號的兩把 token 共用同一個 $0.10。
 另外 App settings **沒有 branch 欄位**，分支在建立 app 時決定、事後改不了，
 所以更新正式站就是合回 `main` 再 push。
 
