@@ -16,11 +16,11 @@
 
 **最後更新：2026-09-12**
 
-- 分支：`main`，已與 `origin/main` 同步於 `3feee04`
-- **已部署**：11 個 commit 於 2026-09-12 分三批推送（`c44d0ec..3feee04`），
+- 分支：`main`，已與 `origin/main` 同步於 `4a4aa4c`
+- **已部署**：13 個 commit 於 2026-09-12 分四批推送（`c44d0ec..4a4aa4c`），
   Streamlit Cloud 每批自動重新部署。內容是六段 prompt、402 訊息的兩次修正、
-  `ui.plain()`、失敗時的出路提醒、payload 預設收折，以及 WORKLOG 本身。
-  **沒有動任何設定格式**，雲端 Secrets 不需要跟著改
+  `ui.plain()`、失敗時的出路提醒、payload 預設收折、走勢圖的組合線，
+  以及 WORKLOG 本身。**沒有動任何設定格式**，雲端 Secrets 不需要跟著改
 - **雲端與本機用的是兩把不同的 token，但額度仍然共用** ——
   HF 的免費額度是**綁帳號不是綁 token**（官方定價頁：Every Hugging Face *user*
   receives monthly credits，Free Users $0.10）。
