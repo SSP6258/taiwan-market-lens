@@ -17,3 +17,13 @@ def test_wan_stays_quiet_under_one_wan():
     assert wan(0) is None
     assert wan(-9999) is None
     assert wan(10000) == '1.0 萬'
+
+
+def test_prices_survive_markdown_rendering():
+    """Two dollar signs in one message used to render as a LaTeX span, dropping
+    both signs and setting the text between them in a maths font."""
+    from ui import plain
+    from insights import STATUS_REASONS
+    out = plain(STATUS_REASONS[402])
+    assert r'\$0.10' in out and r'\$9' in out and r'\$2' in out
+    assert out.count('$') == out.count(r'\$')

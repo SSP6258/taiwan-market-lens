@@ -41,3 +41,13 @@ def money_metric(card, title, value, **kwargs):
     """
     card.metric(title, f'NT$ {value:,.0f}', delta=wan(value),
                 delta_color='off', delta_arrow='off', **kwargs)
+
+def plain(text):
+    """Text that must render as written, not as markdown.
+
+    Streamlit renders LaTeX between a pair of dollar signs, so a message quoting
+    two prices loses both signs and sets everything between them in a maths font.
+    Escaping belongs here rather than in the message: a future message carrying a
+    price should not have to know about it.
+    """
+    return str(text).replace('$', chr(92) + '$')

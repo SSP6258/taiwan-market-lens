@@ -25,7 +25,7 @@
 - 開發分支 `feature/ai-allocation-advisor` 已 fast-forward 併入，可刪
 - **`abandoned/model-fallback` 只存在於原開發機**，從未推送。
   在新 clone 上找不到它——要保留那份程式碼得先 `git push origin abandoned/model-fallback`
-- 測試：**83 passed / 0 failed**（全綠）
+- 測試：**84 passed / 0 failed**（全綠）
 - **HF 免費額度已耗盡（2026-09-12）**，AI 分頁會顯示額度用完並附帳單連結。
   每月初重置，即 2026-10-01；要立即恢復可買 credits（較划算）或升級 PRO（$9／月）。
   在那之前**任何需要實際呼叫模型的驗證都做不了**（見「待驗證」）
@@ -87,23 +87,27 @@ git config --global --add safe.directory 'C:/Data/project/Codex/Codex APP 0908'
 程式檔案本身（`app/**`）owner 是 `ssp62`，ACL 有 `Authenticated Users: Modify`，
 兩個帳號都寫得進去。**但不要兩個 agent 同時改同一個檔案。**
 
-**2. 主控台是 cp950，中文會變亂碼、emoji 會直接炸。**
+**2. Streamlit 的 markdown 會把一對 `$` 當成 LaTeX。**
+訊息裡出現第二個錢字號時，兩者之間整段會變成數學字體、錢字號本身消失（見第二十四次）。
+要顯示金額走 `ui.plain()`。一個 `$` 看起來沒事，所以這個坑只在加第二個時才爆。
+
+**3. 主控台是 cp950，中文會變亂碼、emoji 會直接炸。**
 所有會輸出中文的指令前面加 `PYTHONIOENCODING=utf-8`。
 
-**3. `.pytest_cache` 寫入被拒（屬於沙箱帳號）。**
+**4. `.pytest_cache` 寫入被拒（屬於沙箱帳號）。**
 跑測試加 `-p no:cacheprovider`，否則會噴一堆 PytestCacheWarning：
 
 ```bash
 PYTHONIOENCODING=utf-8 ./.venv/Scripts/python.exe -m pytest -q -p no:cacheprovider
 ```
 
-**4. Streamlit 不會重新 import 子模組。**
+**5. Streamlit 不會重新 import 子模組。**
 hot-reload 只重跑主腳本，`import` 進來的模組留在 `sys.modules` 快取。
 **新增函式、新增模組、改 import 結構之後一定要重啟服務**，否則會出現
 「Streamlit 顯示的原始碼是新的、實際執行的是舊的」這種極度誤導的 traceback。
 （`app/module_compat.py` 的 `load_renderer` 就是為了對付這件事，但它救不了自己。）
 
-**5. HF 額度看不到餘額，只能從行為推。**
+**6. HF 額度看不到餘額，只能從行為推。**
 `whoami-v2` 不回傳任何額度或用量欄位，唯一來源是 huggingface.co/settings/billing。
 402 有兩種完全不同的情況，**要看趨勢不是看單次**：
 暫時性的（等一下就回 200，見第十六次）與真的耗盡（頻率單調上升、怎麼等都不通）。
@@ -112,7 +116,7 @@ hot-reload 只重跑主腳本，`import` 進來的模組留在 `sys.modules` 快
 **免費額度是每月 $0.10，很薄。** 一天密集調校 prompt 就會用完，
 而且用完之後整個 AI 功能就停擺到下個月初。要連續測就先買 credits 或升 PRO。
 
-**6. 雲端部署不會帶上 `secrets.toml`。**
+**7. 雲端部署不會帶上 `secrets.toml`。**
 `.streamlit/secrets.toml` 在 `.gitignore` 裡（正確）。
 部署後要去 Streamlit Cloud 的 App settings → Secrets 手動貼一次。
 建議雲端另外產一把 token，方便單獨撤銷。
@@ -244,6 +248,30 @@ system prompt。**評估後決定不做。**
 ---
 
 ## 變更紀錄
+
+### 2026-09-12（第二十四次）—— 錢字號被當成 LaTeX，訊息中段變成數學字體
+
+使用者截圖回報「統一字體大小」。**不是字體問題** —— Streamlit 的 markdown 會把
+一對 `$` 之間的內容當成 LaTeX 數學式渲染，所以「$0.10 ⋯ $9」整段變成數學字體、
+兩個錢字號都消失，只剩最後沒有配對的 `$2` 是正常的。
+
+**是前一則改動引進的。** 原本訊息只有一個 `$`（「每月 $2 額度」），湊不成對就不會觸發；
+第二十三次補上價格後變成三個，前兩個立刻配成一對。
+**加一個錢字號可能不會怎樣，加第二個就會。**
+
+修法刻意不把跳脫字元寫進訊息常數：那是渲染層的事，寫進常數的話
+下次有人加新訊息又會中一次，而且測試斷言、複製出去的文字都會看到多餘的反斜線。
+改成 `ui.plain()` 純函式擋在 `st.warning` 那一刻，`ai_panel` 的 `ReadableError`
+分支全部走它。日後任何帶價格的訊息自動免疫。
+
+`STATUS_REASONS` 其餘四則（401/403/429/5xx）目前沒有錢字號，但也一併受保護。
+
+新增 `test_prices_survive_markdown_rendering`，斷言三個價格都被跳脫、
+且訊息裡不存在沒跳脫的 `$`。做過變異驗證：把 `plain()` 換成原樣回傳，測試如預期失敗。
+83 → 84 passed。
+
+**順手**：第一版測試把 `'\$0.10'` 寫成非 raw string，Python 會噴
+`SyntaxWarning: invalid escape sequence`，測試數對但警告從 2 個變 6 個。已改 raw string。
 
 ### 2026-09-12（第二十三次）—— 402 訊息把附贈額度寫成了價格
 

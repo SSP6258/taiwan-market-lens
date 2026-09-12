@@ -567,7 +567,8 @@ def ai_panel(payload, expand=None):
             cache[key] = {'text': text, 'model': model, 'custom': prompt != SYSTEM_PROMPT}
             entry = cache[key]  # Already on screen from the stream; do not draw it twice.
         except ReadableError as exc:
-            st.warning(str(exc))
+            from ui import plain
+            st.warning(plain(exc))
         except (requests.RequestException, ValueError, KeyError, IndexError):
             st.warning('AI 暫時無法回應，請稍後重試。圖表與數據解讀不受影響。')
     elif key in cache:
