@@ -60,7 +60,7 @@ export default function({parentElement, data}) {
   };
   for (const item of data.series) {
     const series = chart.addSeries(L.LineSeries, {
-      color:item.color,lineWidth:item.width ?? 2,lineStyle:0,priceLineVisible:false,lastValueVisible:false,
+      color:item.line ?? item.color,lineWidth:item.width ?? 2,lineStyle:0,priceLineVisible:false,lastValueVisible:false,
       crosshairMarkerRadius:4,priceFormat:{type:'custom',minMove:.1,formatter:fmt},
     });
     series.setData(item.points);
@@ -100,8 +100,35 @@ _vendor = (Path(__file__).parent / "vendor/lightweight-charts-5.0.9.js").read_te
 _component = st.components.v2.component("taiwan_lightweight_chart", html=HTML, css=CSS, js=_vendor + "\n" + JS)
 
 
+# Holding colours and the blend's live together so the reserved one cannot drift back
+# into the rotation. Slot 9 was #F5F7FA; a holding there was indistinguishable from the
+# blend, and slots go by catalogue position, so four holdings were enough to collide.
+COLORS = ["#3B9EFF", "#FF922B", "#D0A2FF", "#FFE14A", "#FF5263", "#35E0CE",
+          "#C0ED55", "#FF80CB", "#7C5CFF", "#BCA383", "#90A4C2", "#00C853"]
+BLEND_COLOR = "#FFFFFF"
+
+
+def fade(color, alpha=0.42):
+    """Hex to rgba. The holdings recede on the canvas while keeping their identity in the
+    legend, where the swatch and the reading still carry the full colour."""
+    value = color.lstrip("#")
+    red, green, blue = (int(value[i:i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({red},{green},{blue},{alpha})"
+
+
+def chart_series(frame, labels, colors, emphasis=None):
+    """`emphasis` names the one column that is not a holding.
+
+    With a blend on the chart the holdings are its parts, so they are drawn back and it is
+    drawn forward. Without one, nothing is subordinate and every line keeps full strength.
+    """
+    return [dict(name=labels[s], color=colors[s],
+                 line=colors[s] if emphasis is None or s == emphasis else fade(colors[s]),
+                 width=3 if s == emphasis else 2,
+                 points=[dict(time=t.strftime("%Y-%m-%d"), value=float(v)) for t, v in frame[s].items()])
+            for s in frame.columns]
+
+
 def render_chart(frame, labels, colors, view, emphasis=None):
-    """`emphasis` names one column to draw heavier -- the blend is not a holding, and a
-    reader scanning twelve identical lines has no other cue that one of them is the total."""
-    series = [dict(name=labels[s], color=colors[s], width=3 if s == emphasis else 2, points=[dict(time=t.strftime("%Y-%m-%d"), value=float(v)) for t, v in frame[s].items()]) for s in frame.columns]
+    series = chart_series(frame, labels, colors, emphasis)
     return _component(data=dict(series=series, end=frame.index[-1].strftime("%Y-%m-%d"), view=view), key="performance_chart", width="stretch", height="content")

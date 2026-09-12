@@ -223,10 +223,7 @@ with comparison_tab:
         st.caption("上方依區間報酬由高至低顯示前 4 檔；完整標的皆列於下方圖表與報酬風險表。")
 
     # Stable color identities across selection changes.
-    colors = ["#3B9EFF", "#FF922B", "#D0A2FF", "#FFE14A", "#FF5263", "#35E0CE",
-              "#C0ED55", "#FF80CB", "#F5F7FA", "#BCA383", "#90A4C2", "#00C853"]
-    # Outside the holding palette on purpose: the blend is a different kind of thing.
-    BLEND_COLOR = "#FFFFFF"
+    from lightweight_chart import COLORS as colors, BLEND_COLOR
     original_style_order = ["009828.TW"] + DEFAULT_SYMBOLS
     style_order = original_style_order + [s for s in CATALOG if s not in original_style_order]
     style_ids = {s: i for i, s in enumerate(style_order)}
