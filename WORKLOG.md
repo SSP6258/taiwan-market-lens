@@ -157,6 +157,28 @@ hot-reload 只重跑主腳本，`import` 進來的模組留在 `sys.modules` 快
 比對 `.pyc` 標頭裡的原始碼戳記與磁碟上的檔案，對不上就 reload。
 **不需要維護任何名單**（第三十次用哨兵名單的版本擋不到「函式多一個參數」，見第三十一次）。
 
+**5b. 本機「重啟」多半沒有真的重啟，而自癒機制在本機會被 pytest 打敗。**
+兩件事會疊在一起，症狀是「改了程式、重啟了、畫面還是舊的」：
+
+- `launch.py` 是**刻意設計成可重複執行**的：偵測到同一個 App 還在跑就直接重用並開瀏覽器
+  （印 `REUSE`），**不會重開**。所以雙擊 `run.bat` 不等於重啟。
+  真的要重啟得先砍掉行程：
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+  Where-Object { $_.CommandLine -like '*Codex APP 0908*' -and $_.CommandLine -like '*streamlit*' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+  `app/launch.py --check` 會印 `START`（可啟動）或 `REUSE`（已在跑），用它確認。
+
+- **`_refresh_replaced_modules()` 比對的是「.pyc 對磁碟原始碼」，不是「記憶體裡的模組對磁碟」。**
+  改完程式後只要在別的行程跑過 pytest，那次 import 就會把 `.pyc` 重寫成新的時間戳，
+  於是伺服器行程看起來「沒有東西被換過」，但它記憶體裡拿的還是舊模組。
+  實測：伺服器 06:36 啟動、`allocation.py` 06:41 修改，而 `.pyc` 內外都是 06:41 → 判定不需重載。
+  **雲端不受影響**（那裡沒有第二個 Python 行程會去重寫 .pyc），所以這是本機開發限定的坑。
+  症狀就是「新增的預設配置在下拉選單裡看不到」。
+
 **6. HF 額度看不到餘額，只能從行為推。**
 `whoami-v2` 不回傳任何額度或用量欄位，而 huggingface.co/settings/billing 的數字會落後
 （伺服器已回 depleted 時，頁面仍可能顯示 $0.09／$0.10）。
