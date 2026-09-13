@@ -92,9 +92,22 @@ SPLIT_STEP = 0.35        # the daily limit is 10%; only leveraged and foreign ET
 # an answer either: a stock dividend of 1.887 sits 5.7% from 2, and at 6% it would be
 # "corrected" into a split it never was. So the near band decides on its own, and the wider
 # one asks volume, which multiplies at a split and does not at anything else.
+#
+# A halt widens it further, and earns the right to. Taiwan suspends trading before a split
+# and does not before a stock dividend, so halted days sitting against the step are evidence
+# of the kind the ratio cannot supply. They also explain the miss: 00662 gives up four
+# trading days to its 1:5 while the index it tracks keeps moving, so it resumes several
+# percent away from its own reference and the step lands near 4.79 rather than 5.00. 0052
+# escaped this only because its suspension fell across a weekend and cost it no session.
 SPLIT_TOLERANCE = 0.01       # 0050 and 0052 land here; a whole ratio this close is decisive
 SPLIT_TOLERANCE_WIDE = 0.04  # 2317's 1.887 misses 2 by 5.7%, so it stays outside
-SPLIT_VOLUME = 2.0           # required only inside the wider band
+# 10% is also as far as this can go before the step starts naming the wrong ratio: a 1:5
+# that drifts 11-14% lands within the band of 4 instead, and nothing in the series tells
+# the two apart -- a 1:5 adrift and a 1:4 standing still leave the same step. For 00662's
+# four sessions that is about 4-5 standard deviations of its index. Past 14% it falls out
+# of every band and is reported instead, which is the safe way to be wrong.
+SPLIT_TOLERANCE_HALT = 0.10  # only reachable with halted days against the step
+SPLIT_VOLUME = 2.0           # required outside the decisive band
 SPLIT_WINDOW = 20
 
 UnitBreak = namedtuple("UnitBreak", "when divisor factor volume_step")
@@ -118,11 +131,20 @@ def unit_breaks(close, volume):
         size = factor if factor > 1 else 1 / factor
         whole = round(size)
         miss = abs(size - whole) / whole if whole else 1.0
-        earlier = volume.iloc[max(0, i - SPLIT_WINDOW):i].median()
-        later = volume.iloc[i:i + SPLIT_WINDOW].median()
-        step = later / earlier if earlier else None
+        # A halt is carried in the series as the previous close at zero volume, and a
+        # split is announced with one: 00662 gives up four trading days to its 1:5. Those
+        # zeros are not quiet days, they are absent ones, and a window that catches enough
+        # of them would drag the median to zero and silence the corroboration.
+        before = volume.iloc[max(0, i - SPLIT_WINDOW):i]
+        after = volume.iloc[i:i + SPLIT_WINDOW]
+        earlier, later = before[before > 0].median(), after[after > 0].median()
+        step = later / earlier if earlier and earlier == earlier else None
+        halted = 0
+        while i - 1 - halted >= 0 and volume.iloc[i - 1 - halted] == 0:
+            halted += 1
+        allowed = SPLIT_TOLERANCE_WIDE if not halted else SPLIT_TOLERANCE_HALT
         near = whole >= 2 and miss <= SPLIT_TOLERANCE
-        corroborated = (whole >= 2 and miss <= SPLIT_TOLERANCE_WIDE
+        corroborated = (whole >= 2 and miss <= allowed
                         and step is not None and step >= SPLIT_VOLUME)
         divisor = (whole if factor > 1 else 1 / whole) if near or corroborated else None
         found.append(UnitBreak(close.index[i], divisor, factor, step))

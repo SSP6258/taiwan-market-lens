@@ -164,3 +164,46 @@ def test_a_split_on_a_day_the_fund_moved_is_still_recognised():
     quiet = repair_units(flat)
     assert "unit_breaks" not in quiet.attrs
     assert quiet.attrs["unit_suspects"][0][0] == index[30]
+
+
+def halted_split(drift, halted_days, ratio=5):
+    """Taiwan suspends trading before a split, and the index it tracks keeps moving, so the
+    fund resumes away from its own reference price and the step misses the whole ratio."""
+    index = pd.bdate_range("2026-08-03", "2026-12-31")
+    close = pd.Series([100 * 1.0005 ** i for i in range(len(index))], index=index)
+    volume = pd.Series([1000.0] * len(index), index=index)
+    resume = index.get_loc(pd.Timestamp("2026-11-17"))
+    for day in range(resume - halted_days, resume):
+        close.iloc[day] = close.iloc[resume - halted_days - 1]
+        volume.iloc[day] = 0.0                      # a halt is carried at zero volume
+    close.iloc[resume:] *= 1 + drift
+    close.iloc[resume:] /= ratio
+    volume.iloc[resume:] *= ratio
+    return index[resume], pd.DataFrame({"Close": close, "Adj Close": close, "Volume": volume})
+
+
+def test_a_split_behind_a_halt_is_recognised_despite_the_drift():
+    """00662's announced 1:5 gives up four sessions, and 4.8% of index drift across them
+    puts the step on 4.77 rather than 5.00 -- outside the band a split without a halt gets.
+    The halted days are the evidence: a stock dividend never has any."""
+    when, frame = halted_split(drift=0.048, halted_days=4)
+    assert repair_units(frame).attrs["unit_breaks"] == [(when, 5)]
+    # The same drift with no halt behind it stays a report, not a repair.
+    _, unhalted = halted_split(drift=0.048, halted_days=0)
+    repaired = repair_units(unhalted)
+    assert "unit_breaks" not in repaired.attrs
+    assert repaired.attrs["unit_suspects"]
+
+
+def test_a_halt_does_not_licence_any_ratio():
+    """The widened band is still a band. Drift far enough and the step falls between whole
+    ratios, and a step that names nothing is reported rather than rounded to a guess.
+
+    Drift further still and it reaches the next whole ratio down and is named wrongly -- a
+    1:5 adrift and a 1:4 standing still leave the same step, and no part of the series tells
+    them apart. For 00662 that takes 11-14% across four sessions, four to five standard
+    deviations of the index it tracks; the band stops just short of it deliberately."""
+    when, frame = halted_split(drift=0.124, halted_days=4)
+    repaired = repair_units(frame)
+    assert "unit_breaks" not in repaired.attrs
+    assert repaired.attrs["unit_suspects"][0][0] == when
