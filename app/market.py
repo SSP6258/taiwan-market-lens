@@ -1,4 +1,5 @@
 """Data retrieval and pure, testable comparison calculations."""
+from collections import namedtuple
 from datetime import date, datetime, timedelta
 from pathlib import Path
 import re
@@ -63,61 +64,87 @@ def parse_symbols(text):
 # real figures are +103.9% and -16.8%.
 #
 # Nothing is named here, for the reason the entry script names no modules: the symbol that
-# breaks next is the one nobody remembered to list. Three signals have to agree instead, and
-# across every holding in the catalogue they never overlap with a real fall -- the worst
-# genuine day in the sample is -20.0% (a 2x leveraged ETF on a -9.7% day for the index) at
-# 1.33x volume, against -75%/-86% at 6.4x/12.7x volume for the two splits, each landing
-# within 0.3% of a whole ratio. A split Yahoo did record is already applied to Close and so
-# leaves no step for this to find.
-SPLIT_FALL = 0.35        # the daily limit is 10%; only leveraged and foreign ETFs pass it
-SPLIT_VOLUME = 2.0       # units outstanding multiply, and the volume goes with them
+# breaks next is the one nobody remembered to list.
+#
+# Two signals decide, and a third only describes. A step this large is not a price move at
+# all -- the daily limit is 10%, and the worst genuine day measured across 118,589 trading
+# days of the catalogue is -20.0% (a 2x leveraged ETF on a -9.7% day for the index). What
+# the step means is then settled by its ratio: landing on a whole number is a change of
+# units, and the smallest one possible, 1:2, already moves the price 50%, so no split hides
+# under the threshold. A ratio that does not land on a whole number is a stock dividend or
+# something else with a story, and those are reported without being touched -- the ratio
+# cannot be recovered from the series, and guessing it would erase whatever really happened.
+#
+# Volume is recorded but does not gate the correction. Units outstanding multiply at a
+# split, and the two known cases stepped 6.4x and 12.7x against 0.54-1.33x for real falls,
+# but a thinly traded fund need not show it, and requiring it is how a split gets missed.
+#
+# The search runs on Adj Close, which already carries the dividend adjustment. A large
+# distribution moves Close by as much as a split -- 2603 fell 39.7% on 2023-06-30 -- and
+# reporting those would bury the real cases in a list of ordinary ex-dividend days. The same
+# day reads +10.0% once adjusted, while every genuine change of units survives adjustment
+# unchanged, so the adjusted series separates the two at no cost.
+SPLIT_STEP = 0.35        # the daily limit is 10%; only leveraged and foreign ETFs pass it
 SPLIT_TOLERANCE = 0.01   # the measured ratios missed 4 and 7 by 0.26% and 0.20%
+SPLIT_VOLUME = 2.0       # reported as corroboration, never required
 SPLIT_WINDOW = 20
+
+UnitBreak = namedtuple("UnitBreak", "when divisor factor volume_step")
 
 
 def unit_breaks(close, volume):
-    """Days where the price switches to a smaller unit, in order, newest unit last.
+    """Days where the price steps further than a price can, in order, oldest first.
 
-    A capital reduction that returns cash also drops the price without a recorded split,
-    but it does not multiply the units, so the volume test leaves it alone.
+    `divisor` is what the earlier side must be divided by to join the later one, and is
+    None when the step does not land on a whole ratio: those are reported, not repaired.
+    A reverse split steps the other way, so a divisor below 1 multiplies the earlier side.
     """
     found = []
     for i in range(1, len(close)):
         previous, current = float(close.iloc[i - 1]), float(close.iloc[i])
-        if previous <= 0 or current <= 0 or current / previous > 1 - SPLIT_FALL:
+        if previous <= 0 or current <= 0:
             continue
-        ratio = previous / current
-        whole = round(ratio)
-        if whole < 2 or abs(ratio - whole) / whole > SPLIT_TOLERANCE:
+        factor = previous / current
+        if 1 - SPLIT_STEP < factor < 1 / (1 - SPLIT_STEP):
             continue
+        size = factor if factor > 1 else 1 / factor
+        whole = round(size)
+        divisor = None
+        if whole >= 2 and abs(size - whole) / whole <= SPLIT_TOLERANCE:
+            divisor = whole if factor > 1 else 1 / whole
         earlier = volume.iloc[max(0, i - SPLIT_WINDOW):i].median()
         later = volume.iloc[i:i + SPLIT_WINDOW].median()
-        if not earlier or later / earlier < SPLIT_VOLUME:
-            continue
-        found.append((close.index[i], whole))
+        step = later / earlier if earlier else None
+        found.append(UnitBreak(close.index[i], divisor, factor, step))
     return found
 
 
 def repair_units(history):
-    """Put the whole series on the unit it trades in today, and record what was changed.
+    """Put the whole series on the unit it trades in today, and record what happened.
 
     Rescaling the earlier side rather than the later one keeps the latest price equal to the
-    real quote. The note rides on the frame so that every caller of load_symbol keeps its
-    signature; `.attrs` survives both the cache's pickling and load_frame's column select.
+    real quote. Both the repairs and the steps left alone ride on the frame so the page can
+    disclose either; `.attrs` survives the cache's pickling and load_frame's column select.
     """
     if "Close" not in history or "Volume" not in history:
         return history
-    found = unit_breaks(history["Close"], history["Volume"])
+    adjusted = "Adj Close" if "Adj Close" in history else "Close"
+    found = unit_breaks(history[adjusted], history["Volume"])
     if not found:
         return history
+    repaired = [b for b in found if b.divisor]
     history = history.copy()
-    for when, whole in found:
-        position = history.index.get_loc(when)
+    for unit in repaired:
+        position = history.index.get_loc(unit.when)
         for column in ("Open", "High", "Low", "Close", "Adj Close"):
             if column in history:
-                history.iloc[:position, history.columns.get_loc(column)] /= whole
-        history.iloc[:position, history.columns.get_loc("Volume")] *= whole
-    history.attrs["unit_breaks"] = found
+                history.iloc[:position, history.columns.get_loc(column)] /= unit.divisor
+        history.iloc[:position, history.columns.get_loc("Volume")] *= unit.divisor
+    if repaired:
+        history.attrs["unit_breaks"] = [(b.when, b.divisor) for b in repaired]
+    unexplained = [(b.when, b.factor) for b in found if not b.divisor]
+    if unexplained:
+        history.attrs["unit_suspects"] = unexplained
     return history
 
 
@@ -156,8 +183,9 @@ def load_frame(symbols, start, end, field):
                     raise ValueError("缺少所選價格基準資料。")
                 histories[symbol] = history[field]
                 stamps.append(stamp)
-                if history.attrs.get("unit_breaks"):
-                    repaired[symbol] = history.attrs["unit_breaks"]
+                for kind in ("unit_breaks", "unit_suspects"):
+                    if history.attrs.get(kind):
+                        repaired.setdefault(kind, {})[symbol] = history.attrs[kind]
             except Exception as exc:
                 failures[symbol] = str(exc)
     return histories, failures, stamps, repaired

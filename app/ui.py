@@ -53,18 +53,34 @@ def plain(text):
     return str(text).replace('$', chr(92) + '$')
 
 
-def unit_notice(repaired, label):
-    """Say which series were put back onto a single unit, and when.
+def unit_notice(found, label):
+    """Say which series were put back onto a single unit, and which steps were left alone.
 
     Staying quiet would be worse than the bug it fixes: the figures on screen no longer
-    match the raw source, and a reader who checks them elsewhere is owed the reason.
+    match the raw source. The second line earns its place as much as the first -- a step
+    nobody could name is still sitting on the chart, and the reader should not have to
+    find it by being surprised.
     """
-    if not repaired:
+    if not found:
         return
-    lines = ['{}：{:%Y/%m/%d} 分割 1:{}'.format(label(symbol), when, whole)
-             for symbol, found in repaired.items() for when, whole in found]
-    st.caption('已自動校正資料來源未記錄的分割（依單日跌幅、成交量倍數與比例判定）：'
-               + '、'.join(lines) + '。斷點之前的價格已換算為目前的計價單位。')
+
+    def shape(divisor):
+        return ('分割 1:{:g}'.format(divisor) if divisor > 1
+                else '反向分割 {:g}:1'.format(round(1 / divisor)))
+
+    repaired = found.get('unit_breaks') or {}
+    if repaired:
+        st.caption('已自動校正資料來源未記錄的分割（依單日跳動幅度與整數比例判定）：'
+                   + '、'.join('{}：{:%Y/%m/%d} {}'.format(label(s), when, shape(d))
+                               for s, items in repaired.items() for when, d in items)
+                   + '。斷點之前的價格已換算為目前的計價單位。')
+    suspects = found.get('unit_suspects') or {}
+    if suspects:
+        st.caption('下列日期的價格跳動超過市場可能的幅度，但比例不是整數，'
+                   '可能是除權配股或其他股權變動。**未做任何校正**，'
+                   '涵蓋該日期的區間報酬與回撤可能失真：'
+                   + '、'.join('{}：{:%Y/%m/%d} 比例 {:.2f}'.format(label(s), when, f)
+                               for s, items in suspects.items() for when, f in items) + '。')
 
 
 _ALLOCATION = ('font-size:13px;line-height:1.9', 'color:#94a3b8;font-size:12px;'

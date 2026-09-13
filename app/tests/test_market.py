@@ -55,21 +55,71 @@ def test_an_unrecorded_split_is_put_back_on_one_unit():
     assert repaired["Close"].iloc[-1] == pytest.approx(frame["Close"].iloc[-1])
 
 
-def test_a_real_crash_is_never_rescaled():
-    """The reverse test matters more than the forward one: mistaking a crash for a split
-    would erase the very fall a reader opened the page to look at."""
-    for fall, volume_ratio, note in [(0.20, 1.3, "深跌但未達門檻"),
-                                     (0.75, 1.0, "跌幅與比例都像分割，但股數沒有變"),
-                                     (0.60, 3.0, "量能跳升，但比例不是整數")]:
+def test_a_real_fall_is_never_rescaled():
+    """The reverse test matters more than the forward one: mistaking a fall for a split
+    would erase the very drop a reader opened the page to look at. -20.0% is the worst
+    genuine day measured across the catalogue, and 2603's -39.7% is a real ex-dividend."""
+    for fall, ratio_note in [(0.20, "深跌，但在市場可能的範圍內"),
+                             (0.397, "除息造成的真實跳動，比例非整數")]:
         index = pd.bdate_range("2024-01-01", periods=60)
         close = pd.Series([100.0] * 60, index=index)
         close.iloc[30:] = 100 * (1 - fall)
         volume = pd.Series([1000.0] * 60, index=index)
-        volume.iloc[30:] = 1000.0 * volume_ratio
+        volume.iloc[30:] = 3000.0          # a fall brings volume too; it must not decide
         frame = pd.DataFrame({"Close": close, "Adj Close": close, "Volume": volume})
         repaired = repair_units(frame)
-        assert repaired["Close"].tolist() == close.tolist(), note
-        assert "unit_breaks" not in repaired.attrs, note
+        assert repaired["Close"].tolist() == close.tolist(), ratio_note
+        assert "unit_breaks" not in repaired.attrs, ratio_note
+
+
+def test_a_distribution_the_adjusted_series_absorbed_is_not_reported():
+    """2603 fell 39.7% on its 2023 ex-date, as far as a split moves a price. Adjusted, the
+    same day reads +10.0%. Searching the adjusted series keeps every ordinary large
+    distribution out of the notice without weakening anything."""
+    index = pd.bdate_range("2024-01-01", periods=60)
+    close = pd.Series([100.0] * 60, index=index)
+    close.iloc[30:] = 100 * (1 - 0.397)
+    frame = pd.DataFrame({"Close": close, "Adj Close": pd.Series([100.0] * 60, index=index),
+                          "Volume": pd.Series([1000.0] * 60, index=index)})
+    repaired = repair_units(frame)
+    assert "unit_breaks" not in repaired.attrs and "unit_suspects" not in repaired.attrs
+
+
+def test_a_step_that_is_not_a_whole_ratio_is_reported_rather_than_guessed():
+    """A stock dividend moves the price by a ratio of its own. It cannot be recovered from
+    the series, so the step is named and left alone instead of being invented."""
+    index = pd.bdate_range("2024-01-01", periods=60)
+    close = pd.Series([100.0] * 60, index=index)
+    close.iloc[30:] = 100 / 1.887                     # 2317's 2000-01-04 ratio
+    frame = pd.DataFrame({"Close": close, "Adj Close": close,
+                          "Volume": pd.Series([1000.0] * 60, index=index)})
+    repaired = repair_units(frame)
+    assert repaired["Close"].tolist() == close.tolist()
+    assert "unit_breaks" not in repaired.attrs
+    when, factor = repaired.attrs["unit_suspects"][0]
+    assert when == index[30] and factor == pytest.approx(1.887, abs=0.01)
+
+
+def test_a_split_nobody_traded_is_still_repaired():
+    """Requiring a volume step is how a split gets missed: a thinly traded fund need not
+    show one, and the price step alone is already beyond any real move."""
+    clean, frame = split_frame(volume_step=1.0)
+    repaired = repair_units(frame)
+    assert repaired.attrs["unit_breaks"] == [(frame.index[30], 4)]
+    assert repaired["Close"].tolist() == pytest.approx(clean.tolist())
+
+
+def test_a_reverse_split_is_put_back_too():
+    index = pd.bdate_range("2024-01-01", periods=60)
+    clean = pd.Series([100 * 1.001 ** i for i in range(60)], index=index)
+    raw = clean.copy()
+    raw.iloc[:30] /= 3                                 # 3 old units became 1 new one
+    frame = pd.DataFrame({"Close": raw, "Adj Close": raw,
+                          "Volume": pd.Series([1000.0] * 60, index=index)})
+    repaired = repair_units(frame)
+    when, divisor = repaired.attrs["unit_breaks"][0]
+    assert when == index[30] and divisor == pytest.approx(1 / 3)
+    assert repaired["Close"].tolist() == pytest.approx(clean.tolist())
 
 
 def test_every_break_in_one_series_is_repaired():
