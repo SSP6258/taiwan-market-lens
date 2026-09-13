@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import altair as alt
 import streamlit as st
-from market import load_symbol
+from market import currency_of, load_symbol
 
 
 def fit_beta(asset, benchmark):
@@ -81,6 +81,17 @@ def render_beta(prices, label, names, start, end, basis, weights=None, portfolio
         st.altair_chart((bars+rule).properties(height=max(240,len(rows)*ROW_HEIGHT)), width='stretch')
         st.caption(f'金色虛線：Beta 1.0 · 基準：{benchmark_label(benchmark)} · {basis}。每檔各自對齊基準，樣本期間可能不同。')
         st.dataframe(frame, hide_index=True, column_config={'Beta':st.column_config.NumberColumn(format='%.2f'), 'R²':st.column_config.NumberColumn(format='%.2f')}, width='stretch')
+        # A US session closes after Taiwan's, so the two markets' "same day" returns carry
+        # different information and the regression finds almost nothing. Measured against
+        # 0050 over three years: VT scores 0.02 with R² 0.00 on matching dates and 0.33 with
+        # R² 0.25 once the US day is moved to the next Taiwan one. The fix is not to shift
+        # the data -- that would quietly make Beta mean something else -- but to say so.
+        crossed = [s for s in fits if currency_of(s) != currency_of(benchmark) and s != '__portfolio__']
+        if crossed:
+            st.warning('下列標的與基準在**不同時區**交易：' + '、'.join(label(s) for s in crossed)
+                       + '。美股收盤在台股之後，同一天的報酬並不重疊，'
+                       '因此 Beta 會系統性接近 0、R² 極低——**這不代表兩者無關**，'
+                       '而是同日比較本身在這裡沒有意義。跨市場的連動請改看較長期間的報酬。')
     with st.container(border=True):
         st.subheader('報酬散點與回歸線')
         symbol = st.selectbox('查看標的', list(fits), format_func=label, key='beta_asset')

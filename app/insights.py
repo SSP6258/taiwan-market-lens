@@ -264,6 +264,13 @@ def beta_facts(prices, weights, label, start, end, basis, portfolio_name):
         '說明': ('Beta 1.0 代表與基準同步波動，高於 1 代表放大、低於 1 代表縮小。'
                  'R2 是基準能解釋的變動比例；R2 偏低時 Beta 的參考價值有限，不可過度解讀。'
                  '低 Beta 不等於低風險，只代表與這個基準連動較弱。')}
+    from market import currency_of
+    crossed = [label(s) for s in prices.columns if currency_of(s) != currency_of(benchmark)]
+    if crossed:
+        facts['時區注意'] = (
+            '、'.join(crossed) + ' 與基準在不同時區交易，美股收盤在台股之後，'
+            '同日報酬不重疊，因此它們的 Beta 會系統性接近 0、R2 極低。'
+            '**不可據此說它們與市場無關或風險低**，要明講這是交易時段造成的量測限制。')
     if benchmark in prices.columns:
         # Regressed on itself it scores a perfect fit, which means nothing.
         facts['注意'] = (f'{label(benchmark)} 本身就是基準，對自己回歸必然得到 '
