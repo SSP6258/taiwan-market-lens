@@ -73,3 +73,26 @@ def test_every_preset_is_fully_allocated():
     over-allocate, and the app would still run."""
     for name, config in allocation.PRESETS.items():
         assert sum(config['weights'].values()) == pytest.approx(100), name
+
+
+def test_a_preset_whose_holdings_are_all_outside_the_catalogue_still_applies():
+    """退休5 is the first preset built entirely from symbols the shortcut list does not
+    carry, so nothing is waiting in the options for it: apply_preset has to put them there
+    or the multiselect drops the whole allocation on the way in."""
+    from market import CATALOG
+    holdings = list(allocation.PRESETS['退休5']['weights'])
+    assert not [s for s in holdings if s in CATALOG], '前提變了：這些已經進了 CATALOG'
+    app = AppTest.from_string("""
+import streamlit as st
+from allocation import preset_picker, allocation_picker
+preset_picker()
+st.multiselect('標的', st.session_state.symbol_options, key='chosen_named_symbols')
+w, name = allocation_picker(st.session_state.chosen_named_symbols, str)
+st.number_input('金額', key='investment_amount_wan')
+""").run()
+    app.selectbox(key='portfolio_preset').select('退休5').run()
+    assert not app.exception
+    assert app.session_state.chosen_named_symbols == holdings
+    assert app.multiselect[0].value == holdings
+    assert app.session_state.applied_weights == pytest.approx([.9, .1])
+    assert app.session_state.investment_amount_wan == 3000

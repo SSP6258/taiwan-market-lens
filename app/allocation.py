@@ -9,6 +9,10 @@ PRESETS = {
     '退休2': {'weights': {'0050.TW': 20.0, '00662.TW': 20.0, '00984B.TWO': 50.0, '00685L.TW': 10.0}, 'amount_wan': 3000.0},
     '退休3': {'weights': {'009816.TW': 20.0, '00662.TW': 30.0, '00984B.TWO': 40.0, '00685L.TW': 10.0}, 'amount_wan': 3000.0},
     '退休4': {'weights': {'009816.TW': 10.0, '00662.TW': 20.0, '00984B.TWO': 50.0, '00685L.TW': 20.0}, 'amount_wan': 3000.0},
+    # A growth pool and a buffer, rather than four holdings held to their opening weights.
+    # 009826 listed 2026-07-22, so every comparison that includes this one is cut back to
+    # its few weeks of history; the 配置比較 page names the holding that does the cutting.
+    '退休5': {'weights': {'009826.TW': 90.0, '00865B.TW': 10.0}, 'amount_wan': 3000.0},
 }
 
 
