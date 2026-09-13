@@ -452,3 +452,22 @@ def test_a_repaired_split_is_disclosed_on_the_page():
     with patch("market.load_symbol", side_effect=fixture_history):
         app = new_app().run(timeout=30)
         assert not [c.value for c in app.caption if "未記錄的分割" in c.value]
+
+
+def test_a_converted_price_is_disclosed_on_the_page():
+    """A converted series no longer matches a US dollar statement, and the difference is
+    the currency rather than the fund, so the page has to name it."""
+    def in_dollars(symbol, start, end):
+        frame, stamp = fixture_history(symbol, start, end)
+        if symbol == "0052.TW":
+            frame = frame.copy()
+            frame.attrs["converted_from"] = "USD"
+        return frame, stamp
+    with patch("market.load_symbol", side_effect=in_dollars):
+        app = new_app().run(timeout=30)
+        assert not app.exception
+        notices = [c.value for c in app.caption if "換算為新臺幣" in c.value]
+        assert len(notices) == 1 and "0052" in notices[0]
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app().run(timeout=30)
+        assert not [c.value for c in app.caption if "換算為新臺幣" in c.value]

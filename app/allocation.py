@@ -13,6 +13,10 @@ PRESETS = {
     # 009826 listed 2026-07-22, so every comparison that includes this one is cut back to
     # its few weeks of history; the 配置比較 page names the holding that does the cutting.
     '退休5': {'weights': {'009826.TW': 90.0, '00865B.TW': 10.0}, 'amount_wan': 3000.0},
+    # The same shape as 退休5, standing in for it: 009826 listed in July 2026 and VT has
+    # traded since 2008, so this is the one that can be looked at over a market cycle.
+    # Priced in dollars and converted to NT$, so its return carries the currency as well.
+    '退休6': {'weights': {'VT': 90.0, '00865B.TW': 10.0}, 'amount_wan': 3000.0},
 }
 
 

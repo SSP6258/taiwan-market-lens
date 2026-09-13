@@ -2,6 +2,8 @@
 
 # Shared with the other horizontal bar charts so axis labels are never dropped.
 ROW_HEIGHT = 44
+# Longer than any exchange holiday, shorter than a suspension worth refusing to trade over.
+MAX_CLOSURE_DAYS = 15
 import numpy as np
 import pandas as pd
 import altair as alt
@@ -13,10 +15,21 @@ def analysis_data(prices):
     daily = clean.pct_change(fill_method=None).dropna(how="any")
     corr = daily.corr().where(daily.std() > 1e-12, np.nan)
     corr.loc[daily.std() <= 1e-12, :] = np.nan
-    # Portfolio uses a contiguous complete segment, never compounds across holes.
+    # Portfolio uses a contiguous complete segment, never compounds across holes. What
+    # counts as a hole is a question of length once two markets are in the same portfolio:
+    # a US holding trades on days Taiwan is shut and the other way round, and treating each
+    # of those as a break leaves the longest run a few weeks long. A closure is short --
+    # Lunar New Year, the longest, keeps Taiwan shut for about nine days -- while the thing
+    # this guards against, a holding that stops trading for a season, is not.
     complete = clean.notna().all(axis=1)
-    groups = (~complete).cumsum()
-    candidates = [g for _, g in clean[complete].groupby(groups[complete])]
+    kept = clean[complete]
+    if isinstance(kept.index, pd.DatetimeIndex):
+        gaps = kept.index.to_series().diff().dt.days.fillna(0)
+        broken = gaps > MAX_CLOSURE_DAYS
+    else:
+        # Without dates there is no holiday to tell apart, so any skipped row is a break.
+        broken = pd.Series(kept.index, index=kept.index).diff().fillna(1) > 1
+    candidates = [g for _, g in kept.groupby(broken.cumsum())]
     segment = max(candidates, key=len) if candidates else clean.iloc[:0]
     return daily, corr, segment
 

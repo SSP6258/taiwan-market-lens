@@ -96,3 +96,28 @@ st.number_input('金額', key='investment_amount_wan')
     assert app.multiselect[0].value == holdings
     assert app.session_state.applied_weights == pytest.approx([.9, .1])
     assert app.session_state.investment_amount_wan == 3000
+
+
+def test_the_dollar_preset_stands_in_for_the_one_with_no_history():
+    """退休6 exists to be 退休5 over a period long enough to look at, so the two have to
+    keep the same shape: the same weights on the same kinds of holding."""
+    five, six = allocation.PRESETS['退休5'], allocation.PRESETS['退休6']
+    assert list(five['weights'].values()) == list(six['weights'].values()) == [90.0, 10.0]
+    assert five['amount_wan'] == six['amount_wan']
+    growth_five, growth_six = list(five['weights'])[0], list(six['weights'])[0]
+    from market import currency_of
+    assert currency_of(growth_five) == 'TWD' and currency_of(growth_six) == 'USD'
+    # The buffer is the same holding in both, so only the growth pool differs.
+    assert list(five['weights'])[1] == list(six['weights'])[1]
+    app = AppTest.from_string("""
+import streamlit as st
+from allocation import preset_picker, allocation_picker
+preset_picker()
+st.multiselect('標的', st.session_state.symbol_options, key='chosen_named_symbols')
+w, name = allocation_picker(st.session_state.chosen_named_symbols, str)
+st.number_input('金額', key='investment_amount_wan')
+""").run()
+    app.selectbox(key='portfolio_preset').select('退休6').run()
+    assert not app.exception
+    assert app.session_state.chosen_named_symbols == list(six['weights'])
+    assert app.session_state.applied_weights == pytest.approx([.9, .1])

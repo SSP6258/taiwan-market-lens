@@ -74,3 +74,31 @@ def test_blend_never_leaves_the_range_of_its_holdings():
     blend_return, _ = blend_paths(prices, pd.Series({'a': .3, 'b': .7}))
     assert (blend_return >= returns.min(axis=1) - 1e-9).all()
     assert (blend_return <= returns.max(axis=1) + 1e-9).all()
+
+
+def test_a_holiday_does_not_cut_the_segment_but_a_suspension_does():
+    """Two markets keep different holidays, so a day one of them is shut shows up as a
+    missing row. Breaking the segment on each of those leaves nothing to work with, while
+    still breaking on a real suspension is the whole point of looking for a segment."""
+    index = pd.bdate_range("2025-01-01", periods=120)
+    frame = pd.DataFrame({"A": np.linspace(100, 130, 120), "B": np.linspace(50, 60, 120)},
+                         index=index)
+    # One market shut for a day, then for a Lunar New Year, then a holding suspended.
+    frame.iloc[10, 0] = np.nan
+    frame.iloc[30:36, 1] = np.nan          # about nine calendar days
+    frame.iloc[70:95, 0] = np.nan          # five weeks
+    segment = analysis_data(frame)[2]
+    assert len(segment) > 60, "假期不該切斷區段"
+    assert segment.index[0] == index[0] and segment.index[-1] == index[69]
+    assert index[70] not in segment.index and index[95] not in segment.index
+
+
+def test_a_taiwan_only_set_keeps_its_previous_segment():
+    """The change must not move anything for the case that was already working."""
+    index = pd.bdate_range("2025-01-01", periods=60)
+    frame = pd.DataFrame({"A": np.linspace(100, 120, 60), "B": np.linspace(50, 55, 60)},
+                         index=index)
+    assert len(analysis_data(frame)[2]) == 60
+    frame.iloc[40:44, 0] = np.nan          # a week off the board, inside the tolerance
+    segment = analysis_data(frame)[2]
+    assert len(segment) == 56 and segment.index[-1] == index[-1]

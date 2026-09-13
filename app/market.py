@@ -21,6 +21,8 @@ CATALOG = {
     "009816.TW": "凱基台灣TOP50", "00685L.TW": "群益臺灣加權正2",
     "009820.TW": "元大納斯達克精選", "00635U.TW": "期元大S&P黃金",
     "8069.TWO": "元太",
+    # Priced in dollars and converted on the way in; see to_twd.
+    "VT": "Vanguard全世界股票",
     "0050.TW": "元大台灣50", "006208.TW": "富邦台50",
     "0056.TW": "元大高股息", "00878.TW": "國泰永續高股息",
     "00919.TW": "群益台灣精選高息", "00929.TW": "復華台灣科技優息",
@@ -48,13 +50,73 @@ def parse_symbols(text):
     for token in re.split(r"[,，\s]+", text.strip().upper()):
         if not token:
             continue
-        if not re.fullmatch(r"\d{4,6}[A-Z]?(?:\.TW|\.TWO)?", token):
-            raise ValueError(f"無效代碼：{token}。請輸入例如 2330、0050 或 6488.TWO。")
-        if "." not in token:
-            token = next((s for s in CATALOG if s.split('.')[0] == token), token + ".TW")
+        if re.fullmatch(r"[A-Z]{1,5}", token):
+            pass  # a US ticker, priced in dollars and converted on the way in
+        elif re.fullmatch(r"\d{4,6}[A-Z]?(?:\.TW|\.TWO)?", token):
+            if "." not in token:
+                token = next((s for s in CATALOG if s.split('.')[0] == token), token + ".TW")
+        else:
+            raise ValueError(f"無效代碼：{token}。請輸入例如 2330、0050、6488.TWO 或 VT。")
         if token not in result:
             result.append(token)
     return result
+
+
+# Anything without a Taiwan suffix is quoted in US dollars, and a holder in Taiwan spends
+# NT$, so the two cannot sit in one portfolio untouched: VT returned 18.5% over the last
+# year in dollars and 23.8% in NT$, and a blend of the first with a NT$ bond fund is a
+# figure in neither currency. Conversion happens here, once, so every page inherits it.
+#
+# No lag. The lag belongs to a Taiwan-listed fund pricing US assets from the previous US
+# close; a dollar asset's value in NT$ is its price times the rate at the same moment.
+#
+# Yahoo's TWD=X carries four isolated bad ticks (2011-10-25/26, 2014-12-31 and 2015-01-01,
+# each dropping to about 1.8 and bouncing back). The rate has stayed between 25 and 35 for
+# thirty years, so a band throws those away without touching anything real.
+FX_SYMBOL = "TWD=X"
+FX_FLOOR, FX_CEILING = 20.0, 40.0
+TAIWAN_INDICES = {"^TWII"}
+
+
+def currency_of(symbol):
+    """NT$ for the Taiwan listings and the Taiwan index; US$ for everything else."""
+    return "TWD" if symbol.endswith((".TW", ".TWO")) or symbol in TAIWAN_INDICES else "USD"
+
+
+@st.cache_data(ttl=3600, max_entries=4, show_spinner=False)
+def fx_rates():
+    """NT$ per US$, daily. Empty rather than raising: a page that cannot convert should
+    say so through the symbol that failed, not take the whole comparison down."""
+    yf.set_tz_cache_location(str(Path(tempfile.gettempdir()) / "tw-compare-yf"))
+    rates = yf.Ticker(FX_SYMBOL).history(period="max", auto_adjust=False, actions=False,
+                                         timeout=20)
+    if rates.empty or "Close" not in rates:
+        return pd.Series(dtype=float)
+    close = rates["Close"].dropna()
+    close.index = pd.DatetimeIndex(close.index).tz_localize(None).normalize()
+    close = close.loc[~close.index.duplicated(keep="last")].sort_index()
+    return close[(close > FX_FLOOR) & (close < FX_CEILING)]
+
+
+def to_twd(history, symbol, rates=None):
+    """Price a dollar-quoted history in NT$, leaving a Taiwan listing alone.
+
+    Days the rate does not reach become NaN rather than being carried from somewhere
+    plausible; the comparison already drops days a holding cannot account for, and an
+    invented rate would be indistinguishable from a real one.
+    """
+    if currency_of(symbol) == "TWD" or history.empty:
+        return history
+    rates = fx_rates() if rates is None else rates
+    if rates.empty:
+        raise ValueError("匯率資料暫時無法取得，無法將美元計價標的換算為台幣。")
+    aligned = rates.reindex(history.index.union(rates.index)).ffill().reindex(history.index)
+    history = history.copy()
+    for column in ("Open", "High", "Low", "Close", "Adj Close", "Dividends"):
+        if column in history:
+            history[column] = history[column] * aligned
+    history.attrs["converted_from"] = "USD"
+    return history.loc[aligned.notna()]
 
 
 # Yahoo has applied some Taiwan ETF splits to only part of a series: 0050 changed units on
@@ -192,7 +254,7 @@ def load_symbol(symbol: str, start: date, end: date):
         raise ValueError("此區間沒有資料，請檢查市場後綴或上市日期。")
     history.index = pd.DatetimeIndex(history.index).tz_localize(None).normalize()
     history = history.loc[~history.index.duplicated(keep="last")].sort_index()
-    history = repair_units(history)
+    history = to_twd(repair_units(history), symbol)
     return history, datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M")
 
 
@@ -218,6 +280,8 @@ def load_frame(symbols, start, end, field):
                 for kind in ("unit_breaks", "unit_suspects"):
                     if history.attrs.get(kind):
                         repaired.setdefault(kind, {})[symbol] = history.attrs[kind]
+                if history.attrs.get("converted_from"):
+                    repaired.setdefault("converted", {})[symbol] = history.attrs["converted_from"]
             except Exception as exc:
                 failures[symbol] = str(exc)
     return histories, failures, stamps, repaired

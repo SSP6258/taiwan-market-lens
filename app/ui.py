@@ -74,6 +74,11 @@ def unit_notice(found, label):
                    + '、'.join('{}：{:%Y/%m/%d} {}'.format(label(s), when, shape(d))
                                for s, items in repaired.items() for when, d in items)
                    + '。斷點之前的價格已換算為目前的計價單位。')
+    converted = found.get('converted') or {}
+    if converted:
+        st.caption('下列標的以美元計價，已按當日匯率換算為新臺幣，**報酬因此包含匯率變動**：'
+                   + '、'.join(label(s) for s in converted)
+                   + '。與美元帳戶對帳單的數字會不同，差額就是台幣的升貶。')
     suspects = found.get('unit_suspects') or {}
     if suspects:
         st.caption('下列日期的價格跳動超過市場可能的幅度，但比例不是整數，'

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import yfinance as yf
-from market import repair_units
+from market import repair_units, to_twd
 from ui import money_metric, wan
 
 UI_VERSION = 11
@@ -51,7 +51,10 @@ def load_distributions(symbol, start, end):
     if h.empty or not {'Close','Dividends','Stock Splits'}.issubset(h.columns):
         raise ValueError('缺少價格或配息事件資料')
     h.index = pd.DatetimeIndex(h.index).tz_localize(None).normalize()
-    return repair_distribution_units(repair_units(h.loc[~h.index.duplicated(keep='last')].sort_index()))
+    # Units first, in the currency the fund quotes: a ratio between a dividend and the
+    # price beside it is only meaningful before either is multiplied by a rate.
+    return to_twd(repair_distribution_units(repair_units(
+        h.loc[~h.index.duplicated(keep='last')].sort_index())), symbol)
 
 
 def cash_result(histories, weights, amount, first, last):

@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 import pytest
-from market import compare_prices, parse_symbols, repair_units, unit_breaks
+from market import (compare_prices, currency_of, parse_symbols, repair_units,
+                    to_twd, unit_breaks)
 
 
 def test_common_start_and_no_filling():
@@ -28,8 +29,12 @@ def test_invalid_prices_and_insufficient_overlap():
 
 def test_symbol_parsing():
     assert parse_symbols("0050, 6488，00679b 0050 6510.two") == ["0050.TW", "6488.TWO", "00679B.TWO", "6510.TWO"]
-    with pytest.raises(ValueError):
-        parse_symbols("AAPL")
+    # US tickers are admitted now that dollar prices are converted on the way in.
+    assert parse_symbols("vt, SPY") == ["VT", "SPY"]
+    # Still not a free pass: a typo must fail here rather than as a fetch error later.
+    for bad in ("ABCDEF", "2330.US", "12AB34", "0050.TWX", "00-50"):
+        with pytest.raises(ValueError):
+            parse_symbols(bad)
 
 
 def split_frame(break_at=30, ratio=4, volume_step=4.5, periods=60):
@@ -207,3 +212,66 @@ def test_a_halt_does_not_licence_any_ratio():
     repaired = repair_units(frame)
     assert "unit_breaks" not in repaired.attrs
     assert repaired.attrs["unit_suspects"][0][0] == when
+
+
+def priced(values, dates=None, dividends=None):
+    index = dates if dates is not None else pd.bdate_range("2024-01-01", periods=len(values))
+    frame = pd.DataFrame({"Close": values, "Adj Close": [v * 0.9 for v in values],
+                          "Volume": [1000.0] * len(values)}, index=index)
+    if dividends is not None:
+        frame["Dividends"] = dividends
+    return frame
+
+
+def test_currency_follows_the_listing():
+    for symbol in ("0050.TW", "00984B.TWO", "^TWII"):
+        assert currency_of(symbol) == "TWD", symbol
+    for symbol in ("VT", "SPY", "^GSPC", "BRK-B"):
+        assert currency_of(symbol) == "USD", symbol
+
+
+def test_a_dollar_price_is_converted_and_a_taiwan_price_is_not():
+    """The second half matters more: converting a NT$ listing twice would multiply an
+    entire series by about thirty and nothing downstream would notice."""
+    frame = priced([100.0, 110.0, 120.0], dividends=[0.0, 2.0, 0.0])
+    rates = pd.Series([30.0, 31.0, 32.0], index=frame.index)
+    converted = to_twd(frame, "VT", rates)
+    assert converted["Close"].tolist() == pytest.approx([3000.0, 3410.0, 3840.0])
+    assert converted["Adj Close"].tolist() == pytest.approx([2700.0, 3069.0, 3456.0])
+    assert converted["Dividends"].tolist() == pytest.approx([0.0, 62.0, 0.0])
+    assert converted.attrs["converted_from"] == "USD"
+    assert converted["Volume"].tolist() == frame["Volume"].tolist()
+    for symbol in ("0050.TW", "00984B.TWO", "^TWII"):
+        untouched = to_twd(frame, symbol, rates)
+        assert untouched is frame, symbol
+        assert "converted_from" not in untouched.attrs
+
+
+def test_conversion_carries_the_rate_forward_but_never_invents_one():
+    """A US session with no quote for the rate takes the last one published. A day before
+    the rate series begins is dropped instead: an assumed rate reads exactly like a real
+    one once it is inside a return."""
+    frame = priced([100.0, 101.0, 102.0, 103.0])
+    rates = pd.Series([31.0, 32.0], index=frame.index[[2, 3]])
+    converted = to_twd(frame, "VT", rates)
+    assert converted.index.tolist() == frame.index[2:].tolist()
+    assert converted["Close"].tolist() == pytest.approx([3162.0, 3296.0])
+    # A gap inside the covered range is carried, not dropped.
+    sparse = pd.Series([30.0, 33.0], index=frame.index[[0, 3]])
+    assert to_twd(frame, "VT", sparse)["Close"].tolist() == pytest.approx(
+        [3000.0, 3030.0, 3060.0, 3399.0])
+
+
+def test_conversion_refuses_rather_than_guessing_when_the_rate_is_missing():
+    with pytest.raises(ValueError):
+        to_twd(priced([100.0, 101.0]), "VT", pd.Series(dtype=float))
+
+
+def test_a_split_is_repaired_before_the_currency_is_applied():
+    """Both steps multiply a series, so the order decides whether the split ratio is still
+    a whole number by the time it is measured."""
+    clean, frame = split_frame()
+    rates = pd.Series(np.linspace(30.0, 33.0, len(frame)), index=frame.index)
+    converted = to_twd(repair_units(frame), "VT", rates)
+    assert converted.attrs["unit_breaks"] == [(frame.index[30], 4)]
+    assert converted["Close"].tolist() == pytest.approx((clean * rates).tolist())
