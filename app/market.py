@@ -85,8 +85,16 @@ def parse_symbols(text):
 # day reads +10.0% once adjusted, while every genuine change of units survives adjustment
 # unchanged, so the adjusted series separates the two at no cost.
 SPLIT_STEP = 0.35        # the daily limit is 10%; only leveraged and foreign ETFs pass it
-SPLIT_TOLERANCE = 0.01   # the measured ratios missed 4 and 7 by 0.26% and 0.20%
-SPLIT_VOLUME = 2.0       # reported as corroboration, never required
+# The step is not the split ratio exactly: it is the ratio divided by whatever the price
+# did that day, so a 1:4 on a day the fund moved 2% lands on 3.92, not 4.00. The two known
+# cases moved 0.26% and 0.20% and fit inside 1%, but that was luck -- 00662 moves 1.3% on an
+# ordinary day, so a 1% band would miss roughly half of its splits. Widening it alone is not
+# an answer either: a stock dividend of 1.887 sits 5.7% from 2, and at 6% it would be
+# "corrected" into a split it never was. So the near band decides on its own, and the wider
+# one asks volume, which multiplies at a split and does not at anything else.
+SPLIT_TOLERANCE = 0.01       # 0050 and 0052 land here; a whole ratio this close is decisive
+SPLIT_TOLERANCE_WIDE = 0.04  # 2317's 1.887 misses 2 by 5.7%, so it stays outside
+SPLIT_VOLUME = 2.0           # required only inside the wider band
 SPLIT_WINDOW = 20
 
 UnitBreak = namedtuple("UnitBreak", "when divisor factor volume_step")
@@ -109,12 +117,14 @@ def unit_breaks(close, volume):
             continue
         size = factor if factor > 1 else 1 / factor
         whole = round(size)
-        divisor = None
-        if whole >= 2 and abs(size - whole) / whole <= SPLIT_TOLERANCE:
-            divisor = whole if factor > 1 else 1 / whole
+        miss = abs(size - whole) / whole if whole else 1.0
         earlier = volume.iloc[max(0, i - SPLIT_WINDOW):i].median()
         later = volume.iloc[i:i + SPLIT_WINDOW].median()
         step = later / earlier if earlier else None
+        near = whole >= 2 and miss <= SPLIT_TOLERANCE
+        corroborated = (whole >= 2 and miss <= SPLIT_TOLERANCE_WIDE
+                        and step is not None and step >= SPLIT_VOLUME)
+        divisor = (whole if factor > 1 else 1 / whole) if near or corroborated else None
         found.append(UnitBreak(close.index[i], divisor, factor, step))
     return found
 

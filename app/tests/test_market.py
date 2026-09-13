@@ -142,3 +142,25 @@ def test_a_series_nobody_split_is_left_exactly_alone():
     repaired = repair_units(frame)
     assert repaired is frame
     assert unit_breaks(frame["Close"], frame["Volume"]) == []
+
+
+def test_a_split_on_a_day_the_fund_moved_is_still_recognised():
+    """The step is the ratio divided by that day's own move, so a 1:4 on a 2% day lands on
+    3.92 rather than 4.00. Measured against 00662, a 1% band alone catches two thirds of
+    split dates; with the volume step to corroborate the wider band it catches all of them."""
+    index = pd.bdate_range("2024-01-01", periods=60)
+    clean = pd.Series([100 * 1.001 ** i for i in range(60)], index=index)
+    raw = clean.copy()
+    raw.iloc[30] *= 1.025                      # the fund rose 2.5% on the day it split
+    raw.iloc[:30] *= 4
+    volume = pd.Series([1000.0] * 60, index=index)
+    volume.iloc[:30] = 250.0
+    frame = pd.DataFrame({"Close": raw, "Adj Close": raw, "Volume": volume})
+    repaired = repair_units(frame)
+    assert repaired.attrs["unit_breaks"] == [(index[30], 4)]
+    # Without the volume step the ratio alone is too far out, and it is reported instead.
+    flat = pd.DataFrame({"Close": raw, "Adj Close": raw,
+                         "Volume": pd.Series([1000.0] * 60, index=index)})
+    quiet = repair_units(flat)
+    assert "unit_breaks" not in quiet.attrs
+    assert quiet.attrs["unit_suspects"][0][0] == index[30]
