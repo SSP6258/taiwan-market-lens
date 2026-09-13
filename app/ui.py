@@ -53,6 +53,20 @@ def plain(text):
     return str(text).replace('$', chr(92) + '$')
 
 
+def unit_notice(repaired, label):
+    """Say which series were put back onto a single unit, and when.
+
+    Staying quiet would be worse than the bug it fixes: the figures on screen no longer
+    match the raw source, and a reader who checks them elsewhere is owed the reason.
+    """
+    if not repaired:
+        return
+    lines = ['{}：{:%Y/%m/%d} 分割 1:{}'.format(label(symbol), when, whole)
+             for symbol, found in repaired.items() for when, whole in found]
+    st.caption('已自動校正資料來源未記錄的分割（依單日跌幅、成交量倍數與比例判定）：'
+               + '、'.join(lines) + '。斷點之前的價格已換算為目前的計價單位。')
+
+
 _ALLOCATION = ('font-size:13px;line-height:1.9', 'color:#94a3b8;font-size:12px;'
                'letter-spacing:.5px;margin-bottom:6px',
                'display:flex;gap:10px;justify-content:space-between;align-items:baseline',

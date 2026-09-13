@@ -11,7 +11,7 @@ from allocation import PRESETS
 from correlation import analysis_data, portfolio_stats
 from lightweight_chart import COLORS, render_chart
 from market import compare_prices, load_frame
-from ui import period_banner
+from ui import period_banner, unit_notice
 
 CURRENT = '目前配置'
 # Cards per row on the composition strip; see render_strategies for why it is not one row.
@@ -89,11 +89,12 @@ def render_strategies(label, basis, start, end, weights=None, portfolio_name='�
     symbols = sorted({s for w in allocations.values() for s in w.index})
     field = 'Adj Close' if basis.startswith('還原') else 'Close'
     with st.spinner('正在取得這些配置所需的行情…'):
-        histories, failures, _ = load_frame(symbols, start, end, field)
+        histories, failures, _, repaired = load_frame(symbols, start, end, field)
     if failures:
         st.warning('下列標的無法載入，含有它的配置無法比較：'
                    + '、'.join(label(s) for s in failures))
         return
+    unit_notice(repaired, label)
     prices = pd.concat(histories, axis=1)
     try:
         paths = configuration_paths(prices, allocations)

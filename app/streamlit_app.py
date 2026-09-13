@@ -209,13 +209,15 @@ with comparison_tab:
 
     field = "Adj Close" if basis.startswith("還原") else "Close"
     with st.spinner("正在取得歷史行情…"):
-        histories, failures, fetched = load_frame(symbols, start, end, field)
+        histories, failures, fetched, repaired = load_frame(symbols, start, end, field)
     if failures:
         st.warning("下列標的無法載入，未納入比較：" + "、".join(label(s) for s in failures))
         with st.expander("資料問題與處理方式"):
             st.write("請確認代碼、市場後綴與上市日期；若資料服務忙碌，稍後按「重新取得資料」。")
             for s, reason in failures.items():
                 st.text(f"{s}: {reason[:300]}")
+    from ui import unit_notice
+    unit_notice(repaired, label)
     if not histories:
         st.error("目前無法取得行情。請檢查網路或稍後重新取得資料。"); st.stop()
     prices = pd.concat({s: histories[s] for s in symbols if s in histories}, axis=1)

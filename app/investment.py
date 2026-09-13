@@ -6,9 +6,43 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import yfinance as yf
+from market import repair_units
 from ui import money_metric, wan
 
 UI_VERSION = 11
+
+
+# Yahoo switched 0050's price units on 2014-01-02 but its dividend units only a year later,
+# leaving 2014-10-24 quoted in the old unit beside a new-unit price: a 9.53% single
+# distribution where the real figure is 2.38%. The price repair cannot reach it, because the
+# two boundaries are not the same day. Each event is judged against the price next to it
+# instead, and only rescaled when a ratio already detected in this same series brings it back
+# into a plausible band -- a series with no split is never touched, so a genuinely large
+# distribution stays as published.
+EVENT_YIELD_CAP = 0.08
+
+
+def repair_distribution_units(history):
+    breaks = history.attrs.get('unit_breaks') or []
+    if not breaks or 'Dividends' not in history:
+        return history
+    repaired = history['Dividends'].copy()
+    ratios = sorted({whole for _, whole in breaks}, reverse=True)
+    for when, value in history['Dividends'][history['Dividends'] > 0].items():
+        earlier = history['Close'].loc[history.index < when]
+        if not len(earlier):
+            continue
+        price = float(earlier.iloc[-1])
+        if price <= 0 or value / price <= EVENT_YIELD_CAP:
+            continue
+        for whole in ratios:
+            if value / whole / price <= EVENT_YIELD_CAP:
+                repaired.loc[when] = value / whole
+                break
+    history = history.copy()
+    history['Dividends'] = repaired
+    history.attrs['unit_breaks'] = breaks
+    return history
 
 
 @st.cache_data(ttl=3600, max_entries=256, show_spinner=False)
@@ -17,7 +51,7 @@ def load_distributions(symbol, start, end):
     if h.empty or not {'Close','Dividends','Stock Splits'}.issubset(h.columns):
         raise ValueError('缺少價格或配息事件資料')
     h.index = pd.DatetimeIndex(h.index).tz_localize(None).normalize()
-    return h.loc[~h.index.duplicated(keep='last')].sort_index()
+    return repair_distribution_units(repair_units(h.loc[~h.index.duplicated(keep='last')].sort_index()))
 
 
 def cash_result(histories, weights, amount, first, last):

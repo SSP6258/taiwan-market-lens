@@ -432,3 +432,23 @@ def test_a_closed_market_on_the_start_date_is_not_a_shortened_window():
         assert "已自動縮短" not in banners[0]
         # Nothing was cut, so there is no coverage notice to explain either.
         assert not [i for i in app.info if "共同期間" in i.value]
+
+
+def test_a_repaired_split_is_disclosed_on_the_page():
+    """A repaired series no longer matches the raw source, so the page has to say so:
+    silence would leave a reader who checks elsewhere with no way to explain the gap."""
+    def carries_a_split(symbol, start, end):
+        frame, stamp = fixture_history(symbol, start, end)
+        if symbol == "0052.TW":
+            frame = frame.copy()
+            frame.attrs["unit_breaks"] = [(frame.index[5], 7)]
+        return frame, stamp
+    with patch("market.load_symbol", side_effect=carries_a_split):
+        app = new_app().run(timeout=30)
+        assert not app.exception
+        notices = [c.value for c in app.caption if "未記錄的分割" in c.value]
+        assert len(notices) == 1
+        assert "0052" in notices[0] and "1:7" in notices[0]
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app().run(timeout=30)
+        assert not [c.value for c in app.caption if "未記錄的分割" in c.value]

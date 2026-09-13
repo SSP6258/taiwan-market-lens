@@ -56,6 +56,71 @@ def parse_symbols(text):
     return result
 
 
+# Yahoo has applied some Taiwan ETF splits to only part of a series: 0050 changed units on
+# 2014-01-02 and 0052 on 2025-11-17, both with an empty "Stock Splits" column. One series
+# then carries two different units, and the step between them reads as a crash that never
+# happened -- 0052 over the last year came out at -70.9% with a -86.6% drawdown where the
+# real figures are +103.9% and -16.8%.
+#
+# Nothing is named here, for the reason the entry script names no modules: the symbol that
+# breaks next is the one nobody remembered to list. Three signals have to agree instead, and
+# across every holding in the catalogue they never overlap with a real fall -- the worst
+# genuine day in the sample is -20.0% (a 2x leveraged ETF on a -9.7% day for the index) at
+# 1.33x volume, against -75%/-86% at 6.4x/12.7x volume for the two splits, each landing
+# within 0.3% of a whole ratio. A split Yahoo did record is already applied to Close and so
+# leaves no step for this to find.
+SPLIT_FALL = 0.35        # the daily limit is 10%; only leveraged and foreign ETFs pass it
+SPLIT_VOLUME = 2.0       # units outstanding multiply, and the volume goes with them
+SPLIT_TOLERANCE = 0.01   # the measured ratios missed 4 and 7 by 0.26% and 0.20%
+SPLIT_WINDOW = 20
+
+
+def unit_breaks(close, volume):
+    """Days where the price switches to a smaller unit, in order, newest unit last.
+
+    A capital reduction that returns cash also drops the price without a recorded split,
+    but it does not multiply the units, so the volume test leaves it alone.
+    """
+    found = []
+    for i in range(1, len(close)):
+        previous, current = float(close.iloc[i - 1]), float(close.iloc[i])
+        if previous <= 0 or current <= 0 or current / previous > 1 - SPLIT_FALL:
+            continue
+        ratio = previous / current
+        whole = round(ratio)
+        if whole < 2 or abs(ratio - whole) / whole > SPLIT_TOLERANCE:
+            continue
+        earlier = volume.iloc[max(0, i - SPLIT_WINDOW):i].median()
+        later = volume.iloc[i:i + SPLIT_WINDOW].median()
+        if not earlier or later / earlier < SPLIT_VOLUME:
+            continue
+        found.append((close.index[i], whole))
+    return found
+
+
+def repair_units(history):
+    """Put the whole series on the unit it trades in today, and record what was changed.
+
+    Rescaling the earlier side rather than the later one keeps the latest price equal to the
+    real quote. The note rides on the frame so that every caller of load_symbol keeps its
+    signature; `.attrs` survives both the cache's pickling and load_frame's column select.
+    """
+    if "Close" not in history or "Volume" not in history:
+        return history
+    found = unit_breaks(history["Close"], history["Volume"])
+    if not found:
+        return history
+    history = history.copy()
+    for when, whole in found:
+        position = history.index.get_loc(when)
+        for column in ("Open", "High", "Low", "Close", "Adj Close"):
+            if column in history:
+                history.iloc[:position, history.columns.get_loc(column)] /= whole
+        history.iloc[:position, history.columns.get_loc("Volume")] *= whole
+    history.attrs["unit_breaks"] = found
+    return history
+
+
 @st.cache_data(ttl=3600, max_entries=256, show_spinner=False)
 def load_symbol(symbol: str, start: date, end: date):
     # Writable on both Windows and Community Cloud; no repository credentials.
@@ -68,6 +133,7 @@ def load_symbol(symbol: str, start: date, end: date):
         raise ValueError("此區間沒有資料，請檢查市場後綴或上市日期。")
     history.index = pd.DatetimeIndex(history.index).tz_localize(None).normalize()
     history = history.loc[~history.index.duplicated(keep="last")].sort_index()
+    history = repair_units(history)
     return history, datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M")
 
 
@@ -75,10 +141,11 @@ def load_frame(symbols, start, end, field):
     """Fetch one price field for many symbols at once.
 
     Failures come back rather than raising: one delisted or mistyped symbol must not take
-    the rest of the comparison with it, and the caller decides how to say so.
+    the rest of the comparison with it, and the caller decides how to say so. The fourth
+    value names the series whose units were repaired, so the page can disclose it.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    histories, failures, stamps = {}, {}, []
+    histories, failures, stamps, repaired = {}, {}, [], {}
     with ThreadPoolExecutor(max_workers=4) as pool:
         jobs = {pool.submit(load_symbol, s, start, end): s for s in symbols}
         for job in as_completed(jobs):
@@ -89,9 +156,11 @@ def load_frame(symbols, start, end, field):
                     raise ValueError("缺少所選價格基準資料。")
                 histories[symbol] = history[field]
                 stamps.append(stamp)
+                if history.attrs.get("unit_breaks"):
+                    repaired[symbol] = history.attrs["unit_breaks"]
             except Exception as exc:
                 failures[symbol] = str(exc)
-    return histories, failures, stamps
+    return histories, failures, stamps, repaired
 
 
 def compare_prices(prices: pd.DataFrame):

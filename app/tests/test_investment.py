@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 from unittest.mock import patch
 from streamlit.testing.v1 import AppTest
-from investment import cash_result
+from investment import cash_result, repair_distribution_units
 
 
 def test_cash_excludes_buy_day_and_does_not_double_count():
@@ -69,3 +69,23 @@ render_investment(p,pd.Series({'A':1.}),30000000.,str,'還原價格')
     assert app.metric[2].delta == '3,300 萬'
     # The return percentage is not an amount; its second line is the window it covers.
     assert app.metric[0].delta == '2025/01/01 — 2025/01/03'
+
+
+def test_a_distribution_left_in_the_old_unit_is_brought_back():
+    """0050's prices changed unit on 2014-01-02 and its dividends only a year later, so one
+    ex-date sits in the old unit beside a new-unit price and reads as a 9.5% distribution."""
+    index = pd.bdate_range('2024-01-01', periods=6)
+    h = pd.DataFrame({'Close': [16.0] * 6, 'Dividends': [0, 0, 1.55, 0, 0, 0.4],
+                      'Stock Splits': [0.0] * 6}, index=index)
+    h.attrs['unit_breaks'] = [(index[0], 4)]
+    repaired = repair_distribution_units(h)
+    assert repaired['Dividends'].iloc[2] == pytest.approx(1.55 / 4)
+    # The plausible one beside it is published as it stands.
+    assert repaired['Dividends'].iloc[5] == pytest.approx(0.4)
+
+
+def test_a_large_distribution_without_a_split_is_published_as_it_stands():
+    index = pd.bdate_range('2024-01-01', periods=4)
+    h = pd.DataFrame({'Close': [16.0] * 4, 'Dividends': [0, 1.55, 0, 0],
+                      'Stock Splits': [0.0] * 4}, index=index)
+    assert repair_distribution_units(h)['Dividends'].tolist() == [0, 1.55, 0, 0]
