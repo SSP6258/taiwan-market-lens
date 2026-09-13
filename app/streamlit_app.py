@@ -226,12 +226,16 @@ with comparison_tab:
 
     first, last = aligned.index[0], aligned.index[-1]
     from ui import period_banner
+    covered = prices.dropna(how="all")
+    # A start date that fell on a Saturday is not a holding with late data; the market
+    # was shut. Compare against the first day any holding actually traded, which is what
+    # the sentence claims — otherwise the notice fires every weekend and every holiday.
     shortened = (f"　·　你選擇 {start:%Y/%m/%d} 起，但部分標的資料較晚，已自動縮短"
-                 if first.date() > start else "")
+                 if first > covered.index[0] else "")
     with period_slot.container():
         period_banner(f"期間｜{first:%Y/%m/%d} — {last:%Y/%m/%d}",
                       f"{len(aligned):,} 個共同交易日 · {len(aligned.columns)} 檔標的 · {basis}{shortened}")
-    if first > prices.dropna(how="all").index[0] or last < prices.dropna(how="all").index[-1]:
+    if first > covered.index[0] or last < covered.index[-1]:
         valid_prices = prices.where((prices > 0) & (prices < float("inf")))
         available = valid_prices.dropna(how="all")
         reasons = []

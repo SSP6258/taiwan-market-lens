@@ -415,3 +415,20 @@ def test_a_module_nobody_replaced_is_left_alone():
         app = new_app().run(timeout=30)
         assert not app.exception
     assert correlation.blend_paths is marker
+
+
+def test_a_closed_market_on_the_start_date_is_not_a_shortened_window():
+    """today minus a year lands on a weekend often enough, and then every holding
+    starts on the next trading day. That is the market being shut, not data arriving
+    late, so the banner must not tell the reader their window was cut."""
+    def opens_late(symbol, start, end):
+        frame, stamp = fixture_history(symbol, start, end)
+        return frame.iloc[3:], stamp
+    with patch("market.load_symbol", side_effect=opens_late):
+        app = new_app().run(timeout=30)
+        assert not app.exception
+        banners = [h.body for h in app.get("html") if "FCE4E6" in h.body]
+        assert len(banners) == 1
+        assert "已自動縮短" not in banners[0]
+        # Nothing was cut, so there is no coverage notice to explain either.
+        assert not [i for i in app.info if "共同期間" in i.value]
