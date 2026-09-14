@@ -11,10 +11,11 @@ if not exist ".venv\Scripts\python.exe" (
     pause
     exit /b 1
 )
-".venv\Scripts\python.exe" app/launch.py
+".venv\Scripts\python.exe" app/launch.py --restart
 if errorlevel 1 (
     echo.
-    echo Startup failed. Please check the message above.
+    echo This dashboard window has ended. If a newer window just restarted the
+    echo dashboard, that is expected; otherwise check the message above.
     pause
     exit /b 1
 )

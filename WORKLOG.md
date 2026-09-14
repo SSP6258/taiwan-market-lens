@@ -53,14 +53,15 @@
 - 開發分支 `feature/ai-allocation-advisor` 已 fast-forward 併入，可刪
 - **`abandoned/model-fallback` 只存在於原開發機**，從未推送。
   在新 clone 上找不到它——要保留那份程式碼得先 `git push origin abandoned/model-fallback`
-- 測試：**131 passed / 0 failed**（全綠）；另有 `app/tests/smoke_live.py`
+- 測試：**137 passed / 0 failed**（全綠）；另有 `app/tests/smoke_live.py`
   實機整合檢查 **39 項全過**（會打網路，不在 CI 內）
 - **HF 免費額度已耗盡（2026-09-12）**，AI 分頁會顯示額度用完並附帳單連結。
   每月初重置，即 2026-10-01；要立即恢復可買 credits（較划算）或升級 PRO（$9／月）。
   在那之前**任何需要實際呼叫模型的驗證都做不了**（見「待驗證」）
 - 本機 App：`http://127.0.0.1:8501`，AI 分頁串流輸出。
-  **改完程式要真的重啟**（`run.bat` 只會重用既有行程），而且自癒機制在本機會被 pytest
-  打敗——見環境陷阱 5b，症狀是「新增的預設配置在下拉選單裡看不到」。
+  **`run.bat` / `start.ps1` 現在會強制重啟**（2026-09-14，第四十六次）：
+  先砍掉舊行程再開新的，所以改完程式雙擊就會看到新版。
+  用別的方式啟動仍會撞到舊的坑——見環境陷阱 5b。
   換成六段 prompt 後輸出約變兩倍（718 → 1300–1440 tokens），
   緩衝式呼叫實測 7–9 秒（原本 4.3 秒）；串流的首字時間不受影響
 
@@ -164,12 +165,14 @@ hot-reload 只重跑主腳本，`import` 進來的模組留在 `sys.modules` 快
 比對 `.pyc` 標頭裡的原始碼戳記與磁碟上的檔案，對不上就 reload。
 **不需要維護任何名單**（第三十次用哨兵名單的版本擋不到「函式多一個參數」，見第三十一次）。
 
-**5b. 本機「重啟」多半沒有真的重啟，而自癒機制在本機會被 pytest 打敗。**
-兩件事會疊在一起，症狀是「改了程式、重啟了、畫面還是舊的」：
+**5b.（2026-09-14 起只剩一半）本機「重啟」曾經多半不是重啟。**
+症狀是「改了程式、重啟了、畫面還是舊的」，由兩件事疊出來。
+**第一件已經修掉**：`run.bat` / `start.ps1` 現在帶 `--restart`，會先砍掉舊行程再開新的
+（見第四十六次），雙擊就等於重啟。**第二件還在**，而且只要繞過 `--restart` 就會再中：
 
-- `launch.py` 是**刻意設計成可重複執行**的：偵測到同一個 App 還在跑就直接重用並開瀏覽器
-  （印 `REUSE`），**不會重開**。所以雙擊 `run.bat` 不等於重啟。
-  真的要重啟得先砍掉行程：
+- `launch.py` **不加 `--restart` 時仍然是可重複執行**的：偵測到同一個 App 還在跑就直接重用
+  並開瀏覽器（印 `REUSE`），不會重開。直接 `streamlit run` 也一樣不會殺舊的。
+  `--restart` 關不掉時（例如行程屬於另一個帳號），手動砍：
 
 ```powershell
 Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
@@ -178,6 +181,8 @@ Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
 ```
 
   `app/launch.py --check` 會印 `START`（可啟動）或 `REUSE`（已在跑），用它確認。
+  **`--check` 在 App 開機的那幾秒會誤報 `START`**：那時 port 已經綁住、但 app id 端點還沒起來，
+  於是 `is_our_app` 為假、`port_free` 也為假，select_port 就跳到下一個埠。實測撞得到。
 
 - **`_refresh_replaced_modules()` 比對的是「.pyc 對磁碟原始碼」，不是「記憶體裡的模組對磁碟」。**
   改完程式後只要在別的行程跑過 pytest，那次 import 就會把 `.pyc` 重寫成新的時間戳，
@@ -328,6 +333,55 @@ system prompt。**評估後決定不做。**
 ---
 
 ## 變更紀錄
+
+### 2026-09-14（第四十六次）—— `run.bat` 改成強制重啟：殺得夠準，殺不掉就不要裝作成功
+`session: claude-d8 [b4b834]`
+
+使用者要求 `run.bat` 強制重啟。這是在拆環境陷阱 5b 的第一半——
+「雙擊 `run.bat` 不等於重啟」害第四十五次整則都在查一個不存在的程式錯誤。
+
+**做法**：`launch.py` 加 `--restart`，`run.bat` 與 `start.ps1` 都帶上。
+
+**只殺自己人。** 殺的對象不是「8501–8510 上的任何東西」，而是**先問過 app id 端點、
+確認回的是 `taiwan-market-lens-0908` 的那些埠**。既有的 `is_our_app()` 本來就是為了
+「這個埠上的是不是我」而寫的，正好拿來當殺人前的身分驗證。
+否則使用者在 8502 跑的別的 Streamlit 專案會被順手殺掉，而且不會有任何跡象。
+
+**殺不掉就整個放棄，不要改用別的埠。** 這點是刻意的：
+若 taskkill 失敗（例如行程屬於沙箱帳號 `MSI\CodexSandboxOffline`，見陷阱 1）而我們
+還是往下走，`select_port()` 會找到 8502 並**成功開起來** ——
+使用者得到一個「看起來重啟成功」的新視窗，裡面跑的卻是新程式、而舊視窗還在 8501 上活著。
+那比不重啟更糟。現在直接 return 1 並印出 taskkill 的原話。
+
+**netstat 的 State 欄不能用。** 要從埠找到 PID 只能解析 `netstat -ano`，
+但 State 那欄在部分語系的 Windows 會被翻譯，比對 `"LISTENING"` 就會全部漏掉。
+改成認 Foreign Address 是萬用位址（`0.0.0.0:0` / `[::]:0`）——這欄不會被翻譯。
+（本機 zh-TW 實測 State 仍是英文的 `LISTENING`，但這不保證別台也是，不值得賭。）
+`test_listeners_are_found_even_when_windows_translates_the_state_column` 用德文欄位鎖住。
+
+**實測數據**：taskkill 之後 port **0.0 秒**就可以 bind（沒有 TIME_WAIT 擋 listener），
+所以等待迴圈實際上都是第一次就過；仍保留最多 10 秒的等待，因為「殺完馬上搶不到原本那個埠」
+會讓強制重啟默默換埠，正是上面要避免的事。
+端到端實測：8501 上 PID 22308 → 執行 `--restart` → 同一個埠變成 PID 21616。
+
+**代價（使用者要知道）**：每次雙擊都是完整重啟，Streamlit 冷啟動 ~5 秒，
+而且 `@st.cache_data` 的行情快取在行程裡，跟著一起清空——下一次渲染會重打 Yahoo。
+只想「開瀏覽器看已經在跑的那個」就直接跑 `app/launch.py`（不加旗標），舊行為原封不動還在。
+
+**舊視窗會印一行錯誤，沒有去消掉它。** 被殺的是 `launch.py` 的子行程，
+父行程 `process.wait()` 拿到 1 並回傳，於是舊的 `run.bat` 走進 `errorlevel 1` 分支。
+要讓它乾淨退出就得分辨「我是被新的啟動器換掉」與「streamlit 自己炸了」，
+而唯一可靠的辦法是死掉後再等幾秒看有沒有人接手那個埠——那會讓**真正的**啟動失敗
+慢好幾秒才回報，不划算。改成把 `run.bat` 那句話寫準：講「這個視窗結束了」而不是「啟動失敗」。
+
+**順手記一個測試時撞到的既有缺陷（沒修）**：`--check` 在 App 開機的那幾秒會誤報 `START`。
+那時埠已綁住但 app id 端點還沒起來，`is_our_app` 與 `port_free` 同時為假，
+`select_port()` 就跳到下一個埠。已寫進陷阱 5b。
+
+**`start.ps1` 一起改了**，雖然使用者只說 `run.bat`：README 把兩者列為等價入口，
+留一個重用一個重啟，就是替下一個接手的人造新的 5b。
+
+131 → 137 passed（新增 6 個）。
 
 ### 2026-09-14（第四十五次）—— 退休6 加進去了但畫面看不到：兩層原因
 `session: claude-ff [3b52fc]`

@@ -14,7 +14,9 @@ python -m venv .venv
 ./.venv/Scripts/python.exe -m streamlit run app/streamlit_app.py
 ```
 
-安裝後直接雙擊 `run.bat`，會開啟瀏覽器與服務視窗。瀏覽 http://localhost:8501 。保留服務視窗，停止服務按 Ctrl+C。重複執行會重用已啟動的 Dashboard；若 8501 被其他服務占用，會自動在 8502–8510 選擇可用埠，實際網址會印在視窗。也可使用 `start.ps1`。
+安裝後直接雙擊 `run.bat`，會開啟瀏覽器與服務視窗。瀏覽 http://localhost:8501 。保留服務視窗，停止服務按 Ctrl+C。**重複執行會強制重啟**：先關掉已在跑的 Dashboard，再開一個新的，所以改完程式雙擊 `run.bat` 就會看到新版（舊視窗會印出它已結束，按任意鍵關閉即可）。代價是每次都要重新啟動，行情快取也跟著清空。只想開瀏覽器看已經在跑的那個，改執行 `.venv\Scripts\python.exe app/launch.py`（不加 `--restart`）。若 8501 被其他服務占用，會自動在 8502–8510 選擇可用埠，實際網址會印在視窗。`start.ps1` 行為與 `run.bat` 相同。
+
+`app/launch.py --check` 會印 `START`（沒有在跑）或 `REUSE`（已在跑），可用來確認目前狀態。`--restart` 只會關掉回應本專案 app id 的服務，8501–8510 上的其他程式不會被動到；真的關不掉時會直接失敗並說明原因，不會改用別的埠偷偷開第二份。
 
 ## Streamlit Community Cloud
 
