@@ -142,6 +142,22 @@ def test_a_us_ticker_is_named_from_yahoo_not_left_blank():
     dollar_name.clear()
 
 
+def test_the_retirement_strategy_tab_renders_its_own_arithmetic():
+    """A tab that raises nothing has still not necessarily rendered; this checks the figures
+    reached the page, not merely that opening it was quiet."""
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app().run(timeout=30)
+        app.session_state["analysis_tabs"] = "緩衝池退休法"
+        app.run(timeout=30)
+        assert not app.exception
+        assert any("緩衝池退休法" in s.value for s in app.subheader)
+        assert pick(app, "number_input", "本金（萬元）").value == 3000.0
+        shown = {m.label: m.value for m in app.metric}
+        assert shown["成長池"] == "2,700 萬"
+        assert shown["緩衝池"] == "300 萬"
+        assert shown["首年生活費"] == "102 萬"
+
+
 def test_common_period_explains_both_limiting_symbols():
     def shortened(symbol, start, end):
         frame, stamp = fixture_history(symbol, start, end)
@@ -252,7 +268,7 @@ def test_risk_tabs_group_and_default_to_correlation():
     with patch("market.load_symbol", side_effect=fixture_history):
         app = new_app().run(timeout=30)
         assert [t.label for t in app.tabs] == [
-            "行情比較", "配置比較", "風險分析", "投資報酬", "AI 深度解讀", "關於與使用說明"]
+            "行情比較", "配置比較", "風險分析", "投資報酬", "AI 深度解讀", "緩衝池退休法", "關於與使用說明"]
         app.session_state["analysis_tabs"] = "風險分析"
         app = app.run(timeout=30)
         assert not app.exception
