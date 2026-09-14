@@ -3,6 +3,8 @@ __pycache__/
 .pytest_cache/
 .streamlit/secrets.toml
 *.log
+# 研究腳本的執行紀錄是報告引用的佐證，要跟著 repo 走。
+!analysis/*.log
 .cache/
 **/data/*.html
 

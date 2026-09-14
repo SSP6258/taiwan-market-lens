@@ -2197,3 +2197,32 @@ Beta、投資報酬、配置比較顯示成「VOO VOO」。
 會讓 diff 與部分編輯器的分段判斷出錯。已全部正規化為 CRLF。
 
 改動方式是腳本＋斷言：倒轉後比對「51 則的內容集合」與倒轉前完全相同，確認沒有任何一則被改到或掉字。
+
+### 2026-09-14（第四十九次）—— `analysis/` 進版控，連原始下載一起
+`session: claude-d8 [b4b834]`
+
+Codex 的退休比較研究（前三則）原本整個目錄都沒進版控。已提交，31 個檔案、約 8.9 MB。
+
+**`analysis/data/` 的 11 份原始行情 CSV 是重點，不是附屬品。**
+`retirement_compare.py` 的 `download()` 寫著 `if p.exists(): continue` ——
+有檔就不重抓。所以這些 CSV 就是研究的實際輸入；少了它們，下一個人重跑會靜默
+拿到**不一樣的資料**而不自知。TWD=X 就是活生生的例子：Codex 這次抓到的缺了
+2004-10 至 2006-05，跟第四十三次記載的不同（見該則與下面的待辦）。
+提交這些檔案是把「可重跑」變成「可重現」。
+
+**`.gitignore` 加了一條例外 `!analysis/*.log`。** 兩份報告都把 `run.log`／`linked_run.log`
+列為佐證，但原本的 `*.log` 會把它們擋掉——進了版控也帶不走，引用會變成死連結。
+順帶一提 `linked_run.log` 其實不是 log：它是 17 KB 的單行 JSON，副檔名取錯了。
+`__pycache__/` 仍然照擋。
+
+**這些測試不在 APP 測試套件裡**，這是刻意的：`pytest.ini` 的 `testpaths = app/tests`。
+研究測試用 unittest，要另外跑：
+
+```powershell
+.venv\Scripts\python.exe -m unittest discover -s analysis -p "test_retirement*.py"
+```
+
+已實跑：研究 10 passed、APP 142 passed，兩邊都綠。
+
+**體積最大的是 1.8 MB 的策略說明 PNG**，其次是七份各約 700 KB 的行情 CSV。
+若日後覺得 repo 太肥，先砍的應該是 PNG（可由報告文字重畫），不是 `data/`（砍了就失去可重現性）。
