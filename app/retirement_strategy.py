@@ -17,6 +17,13 @@ from ui import allocation_card, wan
 TRANSFER_RATE = 0.04   # moved out of the growth pool each year
 WITHDRAW_RATE = 0.25   # taken out of the buffer each year, i.e. a quarter
 
+# 00865B's measured return over its 6.8 years, from WORKLOG 第四十次. Only used to price
+# the difference between taking the year's money out at once and taking it monthly.
+BUFFER_YIELD = 0.0289
+# Draw a twelfth at the start of each month and the money still in the pool earns, on
+# average, 11/24 of a year that a lump sum at the start of the year would have missed.
+HELD_FRACTION = 11 / 24
+
 # The poster is the study's own artwork and stays with the study it came from.
 POSTER = Path(__file__).resolve().parent.parent / 'analysis' / 'retirement5-original-100-12.png'
 
@@ -50,6 +57,15 @@ def pool_plan(principal, share):
             'spend_rate': spend / principal if principal else float('nan')}
 
 
+def monthly_execution_gain(spend, annual_yield=BUFFER_YIELD):
+    """What spreading one year's withdrawal over twelve months is worth.
+
+    The rule fixes the amount once a year; this prices only the timing of taking it out,
+    which is why it is a function of its own rather than another key in pool_plan.
+    """
+    return spend * annual_yield * HELD_FRACTION
+
+
 def _caption(card, title, value, note):
     card.metric(title, value, delta=note, delta_color='off', delta_arrow='off')
 
@@ -71,7 +87,8 @@ def render_strategy():
     st.markdown('### 一年只做兩個動作')
     st.markdown(
         '1. **從成長池撥出當時市值的 4%**，放進緩衝池。剩下的 96% 繼續投資，不動。\n'
-        '2. **從緩衝池領出 25%** 當今年的生活費。剩下的 75% 留著，繼續當緩衝。\n\n'
+        '2. **從緩衝池領出 25%** 當今年的生活費 —— 這一步決定的是**今年的總額**，'
+        '不是非得一次領完（見下方「執行面」）。剩下的 75% 留著，繼續當緩衝。\n\n'
         '合起來就是：**年生活費 ＝（成長池 × 4% ＋ 緩衝池）× 25%**')
 
     st.markdown('### 換成你的金額')
@@ -91,7 +108,7 @@ def render_strategy():
     _caption(cards[0], '成長池', wan(plan['growth']), f'{share:.1%}')
     _caption(cards[1], '緩衝池', wan(plan['buffer']), f'{1 - share:.1%}')
     _caption(cards[2], '首年生活費', wan(plan['spend']), f'佔本金 {plan["spend_rate"]:.3%}')
-    _caption(cards[3], '平均每月', wan(plan['monthly']), '未計稅與費用')
+    _caption(cards[3], '平均每月', wan(plan['monthly']), '總額 ÷ 12，未計稅與費用')
 
     st.markdown(
         '| 步驟 | 算式 | 結果 |\n|---|---|---|\n'
@@ -101,6 +118,22 @@ def render_strategy():
         f'| 留在緩衝池 | {wan(plan["pooled"])} × 75% | {wan(plan["buffer_left"])} |\n'
         f'| 留在成長池 | {wan(plan["growth"])} × 96% | {wan(plan["growth_left"])} |\n')
     st.caption(f'緩衝池的存量相當於 {plan["buffer_years"]:.2f} 年的生活費。')
+
+    gain = monthly_execution_gain(plan['spend'])
+    st.markdown('### 執行面：金額一年決定一次，動用可以分月')
+    st.markdown(
+        '**撥款是一年一次的動作。** 在那一天用當時的市值算出撥出額與今年的生活費總額，'
+        '算完就固定了，接下來一整年不再隨市場變動。\n\n'
+        '**但「領出來」不必一次領完。** 把總額分成十二份逐月動用，效果是一樣的，'
+        '而且還沒動用的部分留在緩衝池裡繼續生息。以 00865B 實測年化 2.89% 估，'
+        f'分月動用比年初一次領出大約多 **{wan(gain)}**／年'
+        f'（約等於生活費的 {gain / plan["spend"]:.1%}）—— 金額不大，但方向對你有利。\n\n'
+        '**這也表示模擬的結果偏保守。** 下面引用的模擬是在年初把整年生活費一次扣掉、'
+        '之後才套用當年報酬，等於假設這筆錢整年都沒在賺錢。實際分月動用會比模擬略好一點。')
+    st.warning('**分月動用不等於每月重算。** 每個月只是把年初算好的總額取出十二分之一；'
+               '若改成每個月重新計算一次「緩衝池的 25%」，那是完全不同的規則 —— '
+               '一年會領走緩衝池的 96.8%（1 − 0.75¹²），緩衝立刻消失。'
+               '**25% 是年度比率，不是月度比率。**')
 
     st.markdown('### 每個數字為什麼是那個數字')
     st.markdown(

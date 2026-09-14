@@ -1,6 +1,8 @@
 import pytest
 from allocation import PRESETS
-from retirement_strategy import ORIGINAL, POSTER, PRESET, growth_share, pool_plan
+from retirement_strategy import (BUFFER_YIELD, HELD_FRACTION, ORIGINAL, POSTER, PRESET,
+                                 WITHDRAW_RATE, growth_share, monthly_execution_gain,
+                                 pool_plan)
 
 
 def test_the_original_ratio_pays_out_exactly_what_it_moved_in():
@@ -54,3 +56,23 @@ def test_the_poster_the_page_shows_is_still_where_the_page_looks():
     analysis/ with the study that produced it, so it is a runtime asset of the app as well."""
     assert POSTER.exists(), POSTER
     assert POSTER.stat().st_size > 100_000
+
+
+def test_spreading_the_withdrawal_is_worth_the_months_it_stays_invested():
+    """Derive the 11/24 rather than take it on trust. A lump sum at the start of the year is
+    out of the pool for the whole year; a twelfth drawn each month leaves the rest earning."""
+    lump = 1.0
+    monthly = sum((1 - month / 12) / 12 for month in range(12))
+    assert lump - monthly == pytest.approx(HELD_FRACTION)
+
+    spend = pool_plan(3000 * 10000, growth_share(PRESET))["spend"]
+    gain = monthly_execution_gain(spend)
+    assert gain == pytest.approx(spend * BUFFER_YIELD * HELD_FRACTION)
+    assert gain / 10000 == pytest.approx(1.35, abs=0.01)
+    assert gain < spend * BUFFER_YIELD   # never more than a full year of the buffer's return
+
+
+def test_taking_a_quarter_every_month_would_be_a_different_rule_not_a_schedule():
+    """The page warns about this because it is the easy mistake to make: 25% is an annual
+    rate. Applied monthly it takes almost the entire buffer inside one year."""
+    assert 1 - (1 - WITHDRAW_RATE) ** 12 == pytest.approx(0.968, abs=0.001)
