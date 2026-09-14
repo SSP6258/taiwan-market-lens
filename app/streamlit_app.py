@@ -65,7 +65,8 @@ import pandas as pd
 from lightweight_chart import render_chart
 import streamlit as st
 
-from market import CATALOG, DEFAULT_SYMBOLS, MAX_SYMBOLS, parse_symbols, load_symbol, load_frame, compare_prices
+from market import (CATALOG, DEFAULT_SYMBOLS, MAX_SYMBOLS, parse_symbols, load_symbol, load_frame,
+                    compare_prices, currency_of, dollar_name)
 from securities import load_names
 
 st.set_page_config(page_title="台股比較室 | Taiwan market lens", page_icon=":material/query_stats:", layout="wide")
@@ -90,7 +91,9 @@ with comparison_tab:
 
 
     def label(symbol):
-        return f"{symbol.split('.')[0]} {display_names.get(symbol, '名稱暫未取得')}"
+        # The ISIN lists stop at Taiwan, so a US ticker gets its name from Yahoo.
+        name = display_names.get(symbol) or (dollar_name(symbol) if currency_of(symbol) == "USD" else None)
+        return f"{symbol.split('.')[0]} {name or '名稱暫未取得'}"
 
     today = datetime.now(ZoneInfo("Asia/Taipei")).date()
     if "chosen_named_symbols" not in st.session_state:

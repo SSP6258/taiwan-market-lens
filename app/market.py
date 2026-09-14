@@ -42,7 +42,8 @@ MAX_SYMBOLS = 12
 
 
 def label(symbol):
-    return f"{symbol.split('.')[0]} {CATALOG.get(symbol, symbol.split('.')[-1])}"
+    name = CATALOG.get(symbol) or (dollar_name(symbol) if currency_of(symbol) == "USD" else None)
+    return f"{symbol.split('.')[0]} {name or symbol.split('.')[-1]}"
 
 
 def parse_symbols(text):
@@ -81,6 +82,37 @@ TAIWAN_INDICES = {"^TWII"}
 def currency_of(symbol):
     """NT$ for the Taiwan listings and the Taiwan index; US$ for everything else."""
     return "TWD" if symbol.endswith((".TW", ".TWO")) or symbol in TAIWAN_INDICES else "USD"
+
+
+# Yahoo truncates shortname at this width; longname then carries the whole thing.
+YAHOO_SHORTNAME_LIMIT = 31
+
+
+def pick_name(quote):
+    """The complete one of Yahoo's two names, preferring the shorter to read."""
+    short = (quote.get("shortname") or "").strip()
+    full = (quote.get("longname") or "").strip()
+    if short and len(short) < YAHOO_SHORTNAME_LIMIT:
+        return short
+    return full or short or None
+
+
+@st.cache_data(ttl=3600, max_entries=256, show_spinner=False)
+def dollar_name(symbol):
+    """Yahoo's English name for a dollar-quoted symbol, or None.
+
+    The TWSE ISIN lists name Taiwan listings only, so this is the sole name
+    source for a US ticker. A miss is cached like any other answer: label() is
+    called once per pair on some tabs, and retrying there would turn a single
+    Yahoo outage into a page that crawls.
+    """
+    try:
+        quotes = yf.Search(symbol, max_results=5, news_count=0, lists_count=0,
+                           recommended=0, timeout=8).quotes or []
+    except Exception:
+        return None
+    # The search is fuzzy -- 'VO' offers VOO -- so only an exact ticker is this symbol.
+    return next((pick_name(q) for q in quotes if q.get("symbol") == symbol), None)
 
 
 @st.cache_data(ttl=3600, max_entries=4, show_spinner=False)

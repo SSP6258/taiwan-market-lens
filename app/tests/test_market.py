@@ -1,8 +1,9 @@
 import numpy as np
 import pandas as pd
 import pytest
-from market import (compare_prices, currency_of, parse_symbols, repair_units,
-                    to_twd, unit_breaks)
+from unittest.mock import patch
+from market import (compare_prices, currency_of, dollar_name, label, parse_symbols,
+                    pick_name, repair_units, to_twd, unit_breaks)
 
 
 def test_common_start_and_no_filling():
@@ -221,6 +222,49 @@ def priced(values, dates=None, dividends=None):
     if dividends is not None:
         frame["Dividends"] = dividends
     return frame
+
+
+def test_a_truncated_short_name_gives_way_to_the_long_one():
+    """Yahoo cuts shortname at 31 characters, mid-word: 'State Street SPDR S&P 500 ETF T'."""
+    assert pick_name({"shortname": "ProShares UltraPro QQQ", "longname": "ProShares UltraPro QQQ"}) == "ProShares UltraPro QQQ"
+    assert pick_name({"shortname": "State Street SPDR S&P 500 ETF T",
+                      "longname": "State Street SPDR S&P 500 ETF Trust"}) == "State Street SPDR S&P 500 ETF Trust"
+    assert pick_name({"shortname": "", "longname": "ARK Innovation ETF"}) == "ARK Innovation ETF"
+    assert pick_name({"shortname": "", "longname": ""}) is None
+
+
+def test_only_an_exact_ticker_names_the_symbol():
+    """The search is fuzzy: asking for VO offers VOO, VOOG and VOOV."""
+    found = type("Result", (), {"quotes": [{"symbol": "VOOG", "shortname": "Vanguard S&P 500 Growth ETF"},
+                                           {"symbol": "VOO", "shortname": "Vanguard S&P 500 ETF"}]})
+    dollar_name.clear()
+    with patch("market.yf.Search", return_value=found):
+        assert dollar_name("VOO") == "Vanguard S&P 500 ETF"
+    dollar_name.clear()
+    with patch("market.yf.Search", return_value=type("Result", (), {"quotes": []})):
+        assert dollar_name("ZZZZQQ") is None
+    dollar_name.clear()
+
+
+def test_a_name_lookup_that_fails_costs_the_name_and_nothing_else():
+    dollar_name.clear()
+    with patch("market.yf.Search", side_effect=OSError("offline")):
+        assert dollar_name("VOO") is None
+    dollar_name.clear()
+
+
+def test_a_taiwan_listing_never_asks_yahoo_for_its_name():
+    """Every tab labels every holding; a lookup per NT$ symbol would be paid on each render."""
+    dollar_name.clear()
+    with patch("market.yf.Search") as search:
+        assert label("0050.TW") == "0050 元大台灣50"
+        assert label("1101.TW") == "1101 TW"
+    search.assert_not_called()
+    named = type("Result", (), {"quotes": [{"symbol": "VOO", "shortname": "Vanguard S&P 500 ETF"}]})
+    with patch("market.yf.Search", return_value=named):
+        assert label("VOO") == "VOO Vanguard S&P 500 ETF"
+    assert label("VT") == "VT Vanguard全世界股票"  # a hand-written name still wins
+    dollar_name.clear()
 
 
 def test_currency_follows_the_listing():

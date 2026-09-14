@@ -4,6 +4,7 @@ from unittest.mock import patch
 import pandas as pd
 import sys
 import pytest
+from market import dollar_name
 from securities import snapshot_names
 from streamlit.testing.v1 import AppTest
 
@@ -124,6 +125,21 @@ def test_added_names_appear_in_selector_and_table():
         assert "00998A 主動復華金融股息" in app.multiselect[0].options
         assert app.metric[0].label == "00908 富邦入息REITs+"
         assert "00998A 主動復華金融股息" in app.dataframe[0].value["標的"].tolist()
+
+
+def test_a_us_ticker_is_named_from_yahoo_not_left_blank():
+    """The ISIN lists stop at Taiwan, so without a second source every US holding
+    reads 名稱暫未取得 -- which is what the user saw for VOO next to a named VT."""
+    found = type("Result", (), {"quotes": [{"symbol": "VOO", "shortname": "Vanguard S&P 500 ETF"}]})
+    dollar_name.clear()
+    with patch("market.load_symbol", side_effect=fixture_history),             patch("market.yf.Search", return_value=found):
+        app = new_app().run(timeout=30)
+        app.text_input[0].set_value("VOO")
+        next(b for b in app.button if b.label == "加入上方清單").click().run()
+        assert not app.exception
+        assert app.multiselect[0].value[0] == "VOO"
+        assert "VOO Vanguard S&P 500 ETF" in app.multiselect[0].options
+    dollar_name.clear()
 
 
 def test_common_period_explains_both_limiting_symbols():

@@ -33,7 +33,9 @@
   **退休6**（VT 90% ＋ 00865B 10%，VT 以美元計價、自動換算台幣）。
   退休5／6 是緩衝池法，退休6 是退休5 的長歷史替身（見第四十、四十一、四十二、四十三次）
 - **APP 現在吃得下美元標的**（VT、SPY…）：`load_symbol` 內部換算台幣，
-  畫面會揭露；`^TWII` 與 `.TW/.TWO` 視為台幣不換算（見第四十三次）
+  畫面會揭露；`^TWII` 與 `.TW/.TWO` 視為台幣不換算（見第四十三次）。
+  **名稱也查得到了**（2026-09-14，第四十七次）：美股向 Yahoo 查英文名，
+  台股一律不查以免中文名被蓋掉；`CATALOG` 手寫的名字優先（VT 仍是中文）
 - **上游資料有兩支是壞的，APP 會自動校正並說明**：0052 於 2025-11-17 分割 1:7、
   0050 於 2014-01-02 分割 1:4，Yahoo 兩次都沒記錄（見第三十六～三十九次）。
   2317、3008 是除權配股（非整數比例），**只警告不校正**
@@ -53,7 +55,7 @@
 - 開發分支 `feature/ai-allocation-advisor` 已 fast-forward 併入，可刪
 - **`abandoned/model-fallback` 只存在於原開發機**，從未推送。
   在新 clone 上找不到它——要保留那份程式碼得先 `git push origin abandoned/model-fallback`
-- 測試：**137 passed / 0 failed**（全綠）；另有 `app/tests/smoke_live.py`
+- 測試：**142 passed / 0 failed**（全綠）；另有 `app/tests/smoke_live.py`
   實機整合檢查 **39 項全過**（會打網路，不在 CI 內）
 - **HF 免費額度已耗盡（2026-09-12）**，AI 分頁會顯示額度用完並附帳單連結。
   每月初重置，即 2026-10-01；要立即恢復可買 credits（較划算）或升級 PRO（$9／月）。
@@ -333,6 +335,54 @@ system prompt。**評估後決定不做。**
 ---
 
 ## 變更紀錄
+
+### 2026-09-14（第四十七次）—— 美股名稱改向 Yahoo 要，但只在台股名錄查不到時
+`session: claude-d8 [b4b834]`
+
+使用者問「VOO QQQ TQQQ 等等的名稱有機會取得嗎」。畫面上 VT 有中文名而 VOO 顯示
+「名稱暫未取得」，差別純粹是 **VT 被手寫進 `market.py` 的 `CATALOG`**，不是哪裡壞掉——
+名稱的兩個來源（`CATALOG` 與證交所 ISIN 名錄）都不含美股。
+
+**新來源是 `yf.Search`**，不是 `Ticker.info`。兩者都拿得到名稱、速度也相近（0.6s），
+但 `.info` 是出了名的脆弱與肥大；`Search` 回的是報價列表，要的欄位就在裡面。
+**把 `news_count` / `lists_count` / `recommended` 都設 0 之後從 0.6s 降到 0.28s**——
+預設會連新聞和推薦清單一起抓回來，那些我們一個都不用。
+
+**`shortname` 不能直接用：Yahoo 把它截在 31 字，而且是攔腰截。**
+實測 `State Street SPDR S&P 500 ETF T`、`Vanguard Total World Stock Inde`、
+`YUANTA SECURITIES INV TRUST CO `。所以規則是「shortname 短於 31 字就用它，否則用 longname」
+（longname 比較囉唆但完整：`Vanguard Total World Stock Index Fund ETF Shares`）。
+
+**搜尋是模糊比對，必須要求代碼完全相符。** 查 `VO` 會回 VOO、VOOG、VOOV，
+拿第一筆就會把別人的名字掛到使用者的標的上。查無此代碼時乾淨回空清單（實測 `ZZZZQQ`）。
+
+**查不到也要快取。** `label()` 在相關性分頁是每個配對呼叫一次（`insights.py:174` 是 O(n²)），
+失敗不快取的話，Yahoo 一次斷線就會變成「每次 render 都重打十幾次、每次都等到逾時」。
+所以成功與失敗一律進 `@st.cache_data(ttl=3600)`，代價是斷線後最多一小時內都顯示
+「名稱暫未取得」——那是純外觀損失，比整頁變慢划算。
+
+**台股一定不查。** `currency_of(symbol) == "USD"` 才查。這條不是最佳化而是正確性：
+實測 `0050.TW` 在 Yahoo 查到的是 `YUANTA SECURITIES INV TRUST CO `，
+一旦讓它有機會覆蓋，中文名錄就會被英文名蓋掉。
+`test_a_taiwan_listing_never_asks_yahoo_for_its_name` 用 `assert_not_called()` 鎖住。
+
+**優先序是 CATALOG > ISIN 名錄 > Yahoo。** 手寫的名字永遠贏，所以 VT 仍然是
+「Vanguard全世界股票」而不是英文。要讓 VOO 也顯示中文，就在 `CATALOG` 加一行——
+**但沒有代為加**：美股 ETF 沒有官方中文名，自己編一個等於憑空造資料。
+
+**兩條 label 路徑都改了。** 主分頁用 `streamlit_app.py` 裡的區域 `label()`（吃 ISIN 名錄），
+其餘五個分頁用 `market.label()`（只吃 CATALOG）。只改前者的話，VOO 會在相關性、夏普、
+Beta、投資報酬、配置比較顯示成「VOO VOO」。
+
+**實測**：VOO / QQQ / TQQQ / SPY / SCHD / ARKK / BRK-B 全部取得，各約 0.28s、
+快取後 0.000s。`^TWII` 因為在 `TAIWAN_INDICES` 裡所以不查。
+
+**順手記一個沒修的既有缺陷**：`market.label()` 對「不在 CATALOG 裡的台股」會把市場後綴
+當成名稱印出來——`00865B.TW` 在那五個分頁顯示為「00865B TW」。
+它出現在退休5／退休6 兩個預設配置裡，所以看得到。要修得讓 `market.py` 也拿得到 ISIN 名錄
+（目前只有 `streamlit_app.py` 有），那是另一輪的事。
+
+137 → 142 passed（新增 5 個，含一個 AppTest 驗選單上真的看得到名稱）。
 
 ### 2026-09-14（第四十六次）—— `run.bat` 改成強制重啟：殺得夠準，殺不掉就不要裝作成功
 `session: claude-d8 [b4b834]`
