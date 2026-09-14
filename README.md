@@ -22,9 +22,9 @@ python -m venv .venv
 
 1. 把**整個 repository** 推送到 GitHub。不要逐檔挑選 —— 模組之間互相 import，漏一個就會在雲端 ImportError；`.gitignore` 已排除金鑰與本機檔案。
 2. 在 Streamlit Community Cloud 建立 app，選 repository／branch，入口填 `streamlit_app.py`。
-3. Advanced settings 選 Python 3.13，再部署。此版本不需要 API key。
+3. Advanced settings 選 Python 3.13，再部署。核心功能不需要 API key；只有「AI 深度解讀」分頁需要在 Secrets 設 `HF_TOKEN` 與 `HF_MODEL`（見下方「選用 AI 解讀」）。
 
-目前僅本地實作，未建立公開部署。
+**正式站已經存在**（Streamlit Community Cloud，Secrets 已設定），但網址沒有記錄在本 repo 裡——要更新正式站就是合回 `main` 再 push，App settings 沒有 branch 欄位可改。
 官方部署說明：https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy
 
 ## Lightweight Charts 圖表
