@@ -24,7 +24,10 @@ python -m venv .venv
 2. 在 Streamlit Community Cloud 建立 app，選 repository／branch，入口填 `streamlit_app.py`。
 3. Advanced settings 選 Python 3.13，再部署。核心功能不需要 API key；只有「AI 深度解讀」分頁需要在 Secrets 設 `HF_TOKEN` 與 `HF_MODEL`（見下方「選用 AI 解讀」）。
 
-**正式站已經存在**（Streamlit Community Cloud，Secrets 已設定），但網址沒有記錄在本 repo 裡——要更新正式站就是合回 `main` 再 push，App settings 沒有 branch 欄位可改。
+**正式站：https://taiwan-market-lens.streamlit.app/** （Streamlit Community Cloud，Secrets 已設定）。
+要更新正式站就是合回 `main` 再 push，App settings 沒有 branch 欄位可改。
+**這個 app 設了觀看權限**：未登入時任何路徑都會 303 轉到 `share.streamlit.io/-/auth/app`，
+`/_stcore/health` 也一樣。所以**沒有可匿名探測的健康檢查端點**，外部監控工具擋在門外。
 官方部署說明：https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy
 
 ## Lightweight Charts 圖表
