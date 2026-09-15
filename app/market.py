@@ -1,6 +1,7 @@
 """Data retrieval and pure, testable comparison calculations."""
 from collections import namedtuple
 from datetime import date, datetime, timedelta
+from math import isfinite
 from pathlib import Path
 import re
 import json
@@ -217,6 +218,13 @@ def unit_breaks(close, volume):
     found = []
     for i in range(1, len(close)):
         previous, current = float(close.iloc[i - 1]), float(close.iloc[i])
+        # A session Yahoo published with volume but no close arrives here as NaN, and a
+        # NaN answers False to every comparison: it slips past the guard below, past the
+        # band that lets an ordinary day through, and reaches round() as a ValueError that
+        # takes the whole holding off the page. There is no step to measure across a day
+        # with no price, so skip the pair; compare_prices drops the day itself later.
+        if not (isfinite(previous) and isfinite(current)):
+            continue
         if previous <= 0 or current <= 0:
             continue
         factor = previous / current

@@ -150,6 +150,35 @@ def test_a_series_nobody_split_is_left_exactly_alone():
     assert unit_breaks(frame["Close"], frame["Volume"]) == []
 
 
+def test_a_session_with_volume_and_no_close_does_not_take_the_holding_down():
+    """Yahoo published 2026-09-14 with a volume and a null close on most listings, here
+    and in the US. A NaN answers False to every comparison, so it passed the non-positive
+    guard, passed the band that lets an ordinary day through, and reached round() as a
+    ValueError -- and one such day removed every affected holding from the page."""
+    _, frame = split_frame()
+    frame = frame.copy()
+    for column in ("Close", "Adj Close"):
+        frame.iloc[-1, frame.columns.get_loc(column)] = np.nan
+    repaired = repair_units(frame)
+    # The split is still found, and the day with no price reports nothing of its own:
+    # there is no step to measure across it, so it is neither repaired nor suspected.
+    assert repaired.attrs["unit_breaks"] == [(frame.index[30], 4)]
+    assert "unit_suspects" not in repaired.attrs
+    assert repaired["Close"].iloc[-2] == pytest.approx(frame["Close"].iloc[-2])
+
+
+def test_a_gap_in_the_middle_does_not_hide_the_split_behind_it():
+    """Skipping the pair must cost only that pair. A holding whose series carries an
+    unpriced day early on still has to be put back onto one unit."""
+    clean, frame = split_frame()
+    frame = frame.copy()
+    for column in ("Close", "Adj Close"):
+        frame.iloc[10, frame.columns.get_loc(column)] = np.nan
+    repaired = repair_units(frame)
+    assert repaired.attrs["unit_breaks"] == [(frame.index[30], 4)]
+    assert repaired["Close"].iloc[-1] == pytest.approx(clean.iloc[-1])
+
+
 def test_a_split_on_a_day_the_fund_moved_is_still_recognised():
     """The step is the ratio divided by that day's own move, so a 1:4 on a 2% day lands on
     3.92 rather than 4.00. Measured against 00662, a 1% band alone catches two thirds of
