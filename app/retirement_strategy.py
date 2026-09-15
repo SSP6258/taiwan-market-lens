@@ -23,6 +23,10 @@ from ui import wan
 TRANSFER_RATE = 0.04   # moved out of the growth pool each year
 WITHDRAW_RATE = 0.25   # taken out of the buffer each year, i.e. a quarter
 TRANSFER_RANGE = (1.0, 8.0)
+# January, because a date a reader can remember is worth more than one that happens to
+# fall where the data starts. The rule does not care which month it is -- it only cares
+# that it is the same one every year.
+TRANSFER_MONTH_OF_YEAR = 1
 
 # 00865B's measured return over its 6.8 years, from WORKLOG 第四十次. Only used to price
 # the difference between taking the year's money out at once and taking it monthly.
@@ -103,8 +107,16 @@ def backtest(growth_prices, buffer_prices, principal, share,
     close after the draw, so each row is an end-of-month position.
     """
     monthly = month_ends(growth_prices, buffer_prices)
+    # Begin on the first January there is. Starting wherever the data happens to open
+    # would put two transfers inside one quarter and a stub year on the chart, for the
+    # sake of keeping a couple of months nobody asked to see.
+    opening = [i for i, when in enumerate(monthly.index)
+               if when.month == TRANSFER_MONTH_OF_YEAR]
+    if opening:
+        monthly = monthly.iloc[opening[0]:]
     if len(monthly) < 13:
-        raise ValueError(f'需要至少 13 個月的共同行情，目前只有 {len(monthly)} 個月。')
+        raise ValueError(f'需要至少 13 個月、且涵蓋一個完整年度的共同行情，'
+                         f'目前只有 {len(monthly)} 個月。')
     growth_step = monthly['growth'].pct_change().fillna(0.0)
     buffer_step = monthly['buffer'].pct_change().fillna(0.0)
 
@@ -112,8 +124,9 @@ def backtest(growth_prices, buffer_prices, principal, share,
     annual = draw = 0.0
     rows = []
     for position, when in enumerate(monthly.index):
-        if position % 12 == 0:
-            transfer = growth * transfer_rate
+        moved = 0.0
+        if when.month == TRANSFER_MONTH_OF_YEAR:
+            moved = transfer = growth * transfer_rate
             growth, buffer = growth - transfer, buffer + transfer
             annual = buffer * withdraw_rate
             draw = annual / 12
@@ -124,26 +137,33 @@ def backtest(growth_prices, buffer_prices, principal, share,
         growth *= 1 + growth_step.iloc[position]
         buffer *= 1 + buffer_step.iloc[position]
         rows.append({'月份': when, '成長池': growth, '緩衝池': buffer,
-                     '總資產': growth + buffer, '當月生活費': spent, '年生活費': annual})
+                     '總資產': growth + buffer, '當月生活費': spent,
+                     '年生活費': annual, '當月撥款': moved,
+                     '撥款月': when.month == TRANSFER_MONTH_OF_YEAR})
     return pd.DataFrame(rows).set_index('月份')
 
 
 def yearly_income(run):
-    """What each anniversary year actually paid.
+    """What each calendar year actually paid, indexed by the year itself.
 
-    Only whole years: the history ends mid-year, and a group of eleven months would read
-    as the year the income collapsed.
+    Only whole years: the history ends mid-year, and a group of nine months would read
+    as the year the income collapsed. Calendar years rather than counted ones now that
+    the transfer is every January -- '2025 年' beats '第 6 年' for anyone checking.
     """
-    whole = len(run) // 12 * 12
-    if not whole:
+    if run.empty:
         return pd.Series(dtype=float)
-    paid = run['當月生活費'].iloc[:whole]
-    return paid.groupby(pd.RangeIndex(whole) // 12).sum()
+    by_year = run['當月生活費'].groupby(run.index.year)
+    return by_year.sum()[by_year.count() == 12]
 
 
 # Two readings on one picture, so they need to stay apart: the money you live on, and what
 # it is coming out of. Gold is the income because that is the line a reader is here for.
 INCOME_COLOUR = '#F5C451'
+# The anniversary is the only month anything is decided; the eleven after it just pay
+# out what it decided. Same height, different colour -- it marks when, not how much.
+TRANSFER_COLOUR = '#D0A2FF'
+ORDINARY_MONTH = '一般月份（照年初算好的領）'
+TRANSFER_MONTH = '撥款月（重算今年金額）'
 ASSET_COLOUR = '#35CDBF'
 
 
@@ -228,12 +248,16 @@ def income_chart(run, episodes=()):
     frame['總資產（萬）'] = frame['總資產'] / 10000
     frame['成長池（萬）'] = frame['成長池'] / 10000
     frame['緩衝池（萬）'] = frame['緩衝池'] / 10000
+    frame['當月撥款（萬）'] = frame['當月撥款'] / 10000
+    frame['月份類型'] = [TRANSFER_MONTH if flag else ORDINARY_MONTH
+                         for flag in frame['撥款月']]
     when = alt.X('月份:T', title=None, axis=alt.Axis(format='%Y', tickCount='year'))
     tooltip = [alt.Tooltip('月份:T', format='%Y/%m'),
                alt.Tooltip('每月生活費（萬）:Q', format='.2f'),
                alt.Tooltip('總資產（萬）:Q', format=',.0f'),
                alt.Tooltip('成長池（萬）:Q', format=',.0f'),
-               alt.Tooltip('緩衝池（萬）:Q', format=',.0f')]
+               alt.Tooltip('緩衝池（萬）:Q', format=',.0f'),
+               alt.Tooltip('當月撥款（萬）:Q', format=',.1f')]
     layers = []
     marked = [e for e in episodes if e['跌幅'] <= -SHADE_DEEPER_THAN]
     if marked:
@@ -245,9 +269,13 @@ def income_chart(run, episodes=()):
             tooltip=['事件:N', alt.Tooltip('起:T', format='%Y/%m'),
                      alt.Tooltip('迄:T', format='%Y/%m'),
                      alt.Tooltip('跌幅:Q', format='.1%')]))
-    layers.append(alt.Chart(frame).mark_bar(color=INCOME_COLOUR, opacity=.9).encode(
+    layers.append(alt.Chart(frame).mark_bar(opacity=.9).encode(
         x=when, y=alt.Y('每月生活費（萬）:Q', title='每月生活費（萬元）',
                         axis=alt.Axis(titleColor=INCOME_COLOUR, labelColor=INCOME_COLOUR)),
+        color=alt.Color('月份類型:N', title=None,
+                        scale=alt.Scale(domain=[ORDINARY_MONTH, TRANSFER_MONTH],
+                                        range=[INCOME_COLOUR, TRANSFER_COLOUR]),
+                        legend=alt.Legend(orient='bottom')),
         tooltip=tooltip))
     layers.append(alt.Chart(frame).mark_line(color=ASSET_COLOUR, strokeWidth=2.5).encode(
         x=when, y=alt.Y('總資產（萬）:Q', title='總資產（萬元）',
@@ -312,12 +340,19 @@ def _render_backtest(principal, share, transfer_rate):
     # this chart -- knows nothing about. The shading is a span of dates either way.
     common = pd.concat({'growth': growth_prices, 'buffer': buffer_prices},
                        axis=1).dropna(how='any').sort_index()
+    # Only the span the chart draws: the run starts at the first January, and shading a
+    # fall from before that would stretch the axis back to a time it does not cover.
+    common = common.loc[run.index[0]:]
     episodes = drawdown_episodes(common['growth'])
     st.altair_chart(income_chart(run, episodes), width='stretch')
-    st.caption('金色長條：那個月實際領到的生活費（右軸為總資產，兩者刻度不同）。'
-               '青綠色線：成長池＋緩衝池的合計市值，已扣掉每個月領走的錢。'
-               '年度金額在每個週年重算一次，之後十二個月固定，所以長條是一年一階。'
-               f'紅色區塊：成長池跌超過 {SHADE_DEEPER_THAN:.0%} 的期間，由高點畫到收復當月。')
+    st.caption('**金色長條**：那個月實際領到的生活費（右軸為總資產，兩者刻度不同）。'
+               '**紫色長條**：每年執行撥款的那個月 —— 在那一天從成長池撥出、'
+               '並重新算出接下來十二個月的金額。'
+               '**它的高度和同年其他月份一樣**，標的是「哪個月做了決定」而不是「那個月領比較多」；'
+               '撥了多少錢把游標移上去就看得到。'
+               '**青綠色線**：成長池＋緩衝池的合計市值，已扣掉每個月領走的錢。'
+               '年度金額一年只重算一次，所以長條是一年一階。'
+               f'**紅色區塊**：成長池跌超過 {SHADE_DEEPER_THAN:.0%} 的期間，由高點畫到收復當月。')
 
     if episodes:
         rows = ['| 期間 | 成長池跌幅 | 收復 | 同期緩衝池 | 可能對應的事件 |', '|---|---|---|---|---|']
@@ -345,7 +380,7 @@ def _render_backtest(principal, share, transfer_rate):
              f'每月約 {wan(paid.iloc[0] / 12)}' if len(paid) else '')
     if len(paid) > 1:
         change = paid.iloc[-1] / paid.iloc[0] - 1
-        _caption(cards[2], f'第 {len(paid)} 年生活費', wan(paid.iloc[-1]),
+        _caption(cards[2], f'{paid.index[-1]} 年生活費', wan(paid.iloc[-1]),
                  f'較首年 {change:+.1%}（名目，未計通膨）')
         worst = (paid.pct_change().dropna().min())
         _caption(cards[3], '最差的單年變化', f'{worst:+.1%}',
@@ -365,7 +400,7 @@ def _render_backtest(principal, share, transfer_rate):
                 '| 同一段歷史、同一筆本金 | '
                 f'{TRANSFER_RATE:.1%}（預設） | {transfer_rate:.1%}（你設的） |\n|---|---|---|\n'
                 f'| 首年生活費 | {wan(base_paid.iloc[0])} | **{wan(paid.iloc[0])}** |\n'
-                f'| 第 {len(paid)} 年生活費 | {wan(base_paid.iloc[-1])} | **{wan(paid.iloc[-1])}** |\n'
+                f'| {paid.index[-1]} 年生活費 | {wan(base_paid.iloc[-1])} | **{wan(paid.iloc[-1])}** |\n'
                 f'| 期末總資產 | {wan(baseline["總資產"].iloc[-1])} | '
                 f'**{wan(run["總資產"].iloc[-1])}** |\n'
                 f'| 期末緩衝池佔比 | {baseline["緩衝池"].iloc[-1] / baseline["總資產"].iloc[-1]:.1%} | '
@@ -388,8 +423,11 @@ def _render_backtest(principal, share, transfer_rate):
             '兩個池子會在台幣升值時一起縮水。'
             '**這是退休5／退休6 本身的性質，不是回測的瑕疵。**')
 
-    st.caption('**這是一段 6.8 年的歷史，不是長期驗證。** 期間只夠涵蓋 2020 年的急跌與 '
-               '2022 年的股債同跌，沒有一次完整的長空頭。'
+    st.caption('**撥款日固定在 1 月，所以撥在崩盤前還是崩盤後純屬運氣** —— '
+               '這段歷史剛好是 2020 年 1 月撥完才遇到疫情急跌。'
+               '緩衝池的用處正是讓那個運氣沒那麼要緊，但它不會讓運氣消失。')
+    st.caption(f'**這是一段 {years:.1f} 年的歷史，不是長期驗證。** '
+               '期間只夠涵蓋 2020 年的急跌與 2022 年的股債同跌，沒有一次完整的長空頭。'
                f'期間受 {buffer_symbol} 的上市日限制（{growth_symbol} 本身有更長的歷史）。'
                '未計稅、費用與交易成本；退休5 的 009826 於 2026 年才上市，'
                '所以這裡跑的是它的長歷史替身。')

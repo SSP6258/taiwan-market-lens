@@ -6,7 +6,8 @@ from retirement_strategy import (BACKTEST_PRESET, BUFFER_YIELD, HELD_FRACTION, O
                                  backtest_holdings, growth_share, income_chart,
                                  month_ends, monthly_execution_gain, pool_plan,
                                  yearly_income, EPISODE_NAMES, drawdown_episodes,
-                                 worst_fall_without_the_currency)
+                                 worst_fall_without_the_currency, INCOME_COLOUR,
+                                 TRANSFER_COLOUR, ORDINARY_MONTH, TRANSFER_MONTH)
 
 
 def test_the_original_ratio_pays_out_exactly_what_it_moved_in():
@@ -249,3 +250,76 @@ def test_without_a_rate_series_it_declines_to_guess():
     prices = _fall([100, 90, 80, 85])
     assert worst_fall_without_the_currency(prices, pd.Series(dtype=float)) is None
     assert worst_fall_without_the_currency(prices, None) is None
+
+
+def test_the_transfer_happens_once_a_year_and_only_then():
+    growth, buffer = _flat(months=37, growth_step=0.003)
+    run = backtest(growth, buffer, 3000 * 10000, 0.9)
+    marked = [i for i, flag in enumerate(run['撥款月']) if flag]
+    assert marked == [0, 12, 24, 36]
+    assert (run.loc[run['撥款月'], '當月撥款'] > 0).all()
+    assert (run.loc[~run['撥款月'], '當月撥款'] == 0).all()
+
+
+def test_the_first_transfer_is_the_one_the_table_above_the_chart_shows():
+    growth, buffer = _flat(months=20)
+    run = backtest(growth, buffer, 3000 * 10000, growth_share(PRESET))
+    plan = pool_plan(3000 * 10000, growth_share(PRESET))
+    assert run['當月撥款'].iloc[0] == pytest.approx(plan['transfer'])
+
+
+def test_the_marked_month_pays_the_same_as_the_eleven_after_it():
+    """The colour says a decision was made that month, not that more money came out. A bar
+    that was actually taller would be telling the reader something that is not true."""
+    growth, buffer = _flat(months=26, growth_step=0.004)
+    run = backtest(growth, buffer, 3000 * 10000, 0.9)
+    first_year = run['當月生活費'].iloc[:12]
+    assert first_year.nunique() == 1
+    assert run['撥款月'].iloc[0] and not run['撥款月'].iloc[1:12].any()
+
+
+def test_the_chart_colours_the_transfer_month_apart_from_the_rest():
+    """Asserted on the compiled spec rather than the builder: the spec is what gets drawn."""
+    growth, buffer = _flat(months=26)
+    spec = income_chart(backtest(growth, buffer, 3000 * 10000, 0.9)).to_dict()
+    bars = next(layer for layer in spec['layer']
+                if (layer['mark']['type'] if isinstance(layer['mark'], dict)
+                    else layer['mark']) == 'bar')
+    colour = bars['encoding']['color']
+    assert colour['field'] == '月份類型'
+    assert colour['scale']['domain'] == [ORDINARY_MONTH, TRANSFER_MONTH]
+    assert colour['scale']['range'] == [INCOME_COLOUR, TRANSFER_COLOUR]
+    # Two colours with nothing saying which is which are decoration, not information.
+    assert colour.get('legend') is not None
+
+
+def test_the_transfer_is_january_whatever_month_the_data_opens_in():
+    """The real history opens in November. Counting twelve from there would put the transfer
+    in November forever -- a date that means nothing to anyone holding this."""
+    index = pd.date_range('2019-11-01', periods=40, freq='ME')
+    growth = pd.Series([100 * 1.004 ** i for i in range(40)], index=index)
+    buffer = pd.Series([50.0] * 40, index=index)
+    run = backtest(growth, buffer, 3000 * 10000, 0.9)
+    assert run.index[0].month == 1 and run.index[0].year == 2020, run.index[0]
+    assert all(when.month == 1 for when in run.index[run['撥款月']])
+    assert run['撥款月'].sum() == 4          # 2020, 2021, 2022, 2023
+    # Those two months before the first January are dropped, not paid out twice.
+    assert run.index[0] > index[0]
+
+
+def test_income_is_reported_by_calendar_year_and_only_when_the_year_is_whole():
+    index = pd.date_range('2019-11-01', periods=40, freq='ME')
+    growth = pd.Series([100.0] * 40, index=index)
+    buffer = pd.Series([50.0] * 40, index=index)
+    run = backtest(growth, buffer, 3000 * 10000, 0.9)
+    paid = yearly_income(run)
+    # The run ends in February 2023, so that year is not a year yet and is left out.
+    assert list(paid.index) == [2020, 2021, 2022]
+    assert paid.loc[2020] == pytest.approx(run.loc['2020', '當月生活費'].sum())
+
+
+def test_a_history_with_no_january_at_all_is_still_refused():
+    index = pd.date_range('2020-02-01', periods=10, freq='ME')
+    flat = pd.Series([100.0] * 10, index=index)
+    with pytest.raises(ValueError):
+        backtest(flat, flat, 3000 * 10000, 0.9)
