@@ -503,3 +503,22 @@ def test_a_converted_price_is_disclosed_on_the_page():
     with patch("market.load_symbol", side_effect=fixture_history):
         app = new_app().run(timeout=30)
         assert not [c.value for c in app.caption if "換算為新臺幣" in c.value]
+
+
+def test_the_retirement_tab_draws_the_backtest_and_offers_the_rate():
+    """第四十四次 again: opening a tab quietly is not the same as it having rendered. The
+    chart and the cards it fills are the point of the tab, so they get asserted, not inferred."""
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app().run(timeout=60)
+        app.session_state["analysis_tabs"] = "緩衝池退休法"
+        app.run(timeout=60)
+        assert not app.exception
+        rate = pick(app, "slider", "每年從成長池撥出（%）")
+        assert rate.value == 4.0, "the default has to be the rate the page explains"
+        assert len(app.get("vega_lite_chart")) == 1, "the backtest chart never rendered"
+        shown = {m.label: m.value for m in app.metric}
+        assert "期末總資產" in shown and shown["期末總資產"].endswith("萬")
+        # The long prose is behind expanders now; the calculator and the chart are not.
+        labels = [e.label for e in app.expander]
+        for section in ["一年只做哪兩個動作", "每個數字為什麼是那個數字", "為什麼不需要再平衡"]:
+            assert section in labels, section

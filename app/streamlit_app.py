@@ -390,8 +390,9 @@ if investment_tab.open:
 
 if retirement_tab.open:
     with retirement_tab:
-        # Explanatory only: it reads the presets, never the loaded prices, so it renders
-        # the same whatever is selected on the other tabs.
+        # Independent of the sidebar either way: the rule is explained against the
+        # presets, and the backtest fetches 退休6's own two holdings rather than
+        # whatever happens to be selected on the other tabs.
         from retirement_strategy import render_strategy
         render_strategy()
 
