@@ -420,6 +420,42 @@ system prompt。**評估後決定不做。**
 
 ---
 
+### 雲端排程監控 APP（2026-09-15 實作後停用，環境擋住）
+`session: claude-09 [a371a6]`
+
+使用者要一個 Claude Routine 定期檢查正式站的功能與數據。**做出來了，跑過一次，然後停用**——
+routine id `trig_01MzL6fnKLXPmotnQx9Q86To`，`enabled: false`，設定還在，想恢復只要打開開關。
+
+**兩道牆，都不是程式問題：**
+
+**1. 雲端沙箱的出網政策擋掉 Yahoo。** 實跑證據：clone ✅、venv ✅、pip ✅、
+`pytest` **154 passed** ✅，然後 `smoke_live.py` 全滅。那個 agent 去查了沙箱自己的
+proxy 狀態端點（`http://127.0.0.1:39129/__agentproxy/status`），
+`fc.yahoo.com`、`guce.yahoo.com`、`query2.finance.yahoo.com` 的 CONNECT 一律 **403
+policy denial**，`recentRelayFailures` 全是 `connect_rejected`。不是限流、不是斷線。
+
+**這一點讓整個構想失效，理由很具體：今天那個 NaN 缺陷，pytest 從頭到尾都是綠的。**
+154 項單元測試一項都沒紅，因為它們不打網路。所以一個只跑得動 pytest 的監控，
+會在「每一檔都取不到股價」的時候回報正常——**比沒有監控更糟**。
+
+**2. 正式站是登入制的，沒有可匿名探測的端點。** 未登入時任何路徑都 303 轉到
+`share.streamlit.io/-/auth/app`，`/_stcore/health` 也一樣。外部監控只看得到那個轉址，
+**無論 app 是好的、壞的還是睡著的**。
+
+**順帶回答一個問過的問題：留著 routine 不會避免雲端 APP 休眠。** 它根本沒碰那個網址；
+就算加一行去 ping，請求也死在認證閘道、到不了 app 容器。要靠訪問保活只有兩條路：
+帶登入憑證（等於把帳號憑證放進 routine，不建議），或把 app 改成公開——
+**但公開之後任何人都能點 AI 分頁燒掉你自己的 HF 額度**（每月只有 $0.10），
+那多半正是當初設登入限制的原因。
+
+**一個意外的好消息：雲端 routine 可以推播到手機的 Claude APP。** 那次執行自己用了
+`PushNotification`，回傳 `Mobile push requested.`（00:59:49 UTC）。
+**沒有確認過使用者是否真的收到**，只知道請求送出去了。
+
+**若日後要恢復，先解決的順序是**：(a) 能不能讓雲端環境放行 Yahoo 那幾個網域；
+(b) 若不能，就把檢查搬到本機排程（那裡實測 39/39 通過），雲端 routine 只保留
+「程式碼有沒有被改壞」這個弱得多的角色，而且**回報裡必須明講它看不到資料層**。
+
 ## 變更紀錄
 
 > 由舊到新，**新的一則加在這個檔案的最後面**。
