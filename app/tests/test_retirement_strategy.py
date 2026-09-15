@@ -5,7 +5,8 @@ from retirement_strategy import (BACKTEST_PRESET, BUFFER_YIELD, HELD_FRACTION, O
                                  POSTER, PRESET, WITHDRAW_RATE, backtest,
                                  backtest_holdings, growth_share, income_chart,
                                  month_ends, monthly_execution_gain, pool_plan,
-                                 yearly_income)
+                                 yearly_income, EPISODE_NAMES, drawdown_episodes,
+                                 worst_fall_without_the_currency)
 
 
 def test_the_original_ratio_pays_out_exactly_what_it_moved_in():
@@ -175,3 +176,76 @@ def test_the_two_readings_keep_their_own_scales():
     chart = income_chart(backtest(growth, buffer, 3000 * 10000, 0.9))
     assert len(chart.layer) == 2
     assert chart.resolve.scale.y == 'independent'
+
+
+def _fall(shape, start='2020-01-01'):
+    index = pd.bdate_range(start, periods=len(shape))
+    return pd.Series([float(v) for v in shape], index=index)
+
+
+def test_a_fall_is_measured_from_the_high_it_fell_from_to_the_day_it_got_back():
+    prices = _fall([100, 100, 80, 70, 75, 90, 100, 101])
+    found = drawdown_episodes(prices, threshold=0.08)
+    assert len(found) == 1
+    episode = found[0]
+    assert episode['跌幅'] == pytest.approx(-0.30)
+    assert episode['高點'] == prices.index[1]
+    assert episode['谷底'] == prices.index[3]
+    assert episode['收復'] == prices.index[6]
+
+
+def test_a_wobble_shallower_than_the_threshold_is_not_an_episode():
+    assert drawdown_episodes(_fall([100, 96, 98, 100, 101]), threshold=0.08) == []
+    assert len(drawdown_episodes(_fall([100, 90, 95, 100, 101]), threshold=0.08)) == 1
+
+
+def test_a_fall_still_running_at_the_end_says_it_has_not_recovered():
+    """Taking the last row as the recovery would turn an open drawdown into a closed one."""
+    found = drawdown_episodes(_fall([100, 100, 70, 75, 80]), threshold=0.08)
+    assert len(found) == 1
+    assert found[0]['收復'] is None
+    assert found[0]['跌幅'] == pytest.approx(-0.30)
+
+
+def test_a_trough_inside_a_month_survives_daily_sampling():
+    """Month ends called COVID a 22.3% fall where it was 33.6%; the page shades the real one."""
+    daily = _fall([100] * 5 + [66] + [95] * 5 + [101])
+    monthly = daily.groupby(daily.index.to_period('M')).last()
+    assert drawdown_episodes(daily, threshold=0.08)[0]['跌幅'] == pytest.approx(-0.34)
+    assert not drawdown_episodes(monthly, threshold=0.30)
+
+
+def test_an_episode_is_only_named_when_its_trough_is_one_we_know():
+    known = next(iter(EPISODE_NAMES))
+    index = pd.bdate_range(f'{known[0]}-{known[1]:02d}-01', periods=6)
+    named = drawdown_episodes(pd.Series([100.0, 100.0, 70.0, 80.0, 95.0, 101.0], index=index))
+    assert named[0]['名稱'] == EPISODE_NAMES[known]
+    plain = drawdown_episodes(_fall([100, 100, 70, 80, 95, 101], start='2017-03-01'))
+    assert plain[0]['名稱'] is None, '認不出來的就該留白，不是編一個'
+
+
+def test_only_the_deep_episodes_get_shaded():
+    growth, buffer = _flat(months=40)
+    run = backtest(growth, buffer, 3000 * 10000, 0.9)
+    shallow = [{'高點': run.index[2], '谷底': run.index[4], '收復': run.index[8],
+                '跌幅': -0.09, '名稱': None}]
+    deep = [dict(shallow[0], 跌幅=-0.30, 名稱='測試事件')]
+    assert len(income_chart(run, shallow).layer) == len(income_chart(run).layer)
+    assert len(income_chart(run, deep).layer) > len(income_chart(run).layer)
+
+
+def test_a_rate_move_is_not_the_bond_falling():
+    """00865B lost 12.1% in NT$ over 2025 while gaining 0.8% in dollars. The buffer is the
+    part meant to hold still, so which of the two it was has to be said out loud."""
+    index = pd.bdate_range('2025-01-01', periods=6)
+    rates = pd.Series([33.0, 33.0, 31.0, 29.0, 29.0, 29.0], index=index)
+    steady_in_dollars = pd.Series([100.0, 100.0, 94.0, 88.0, 88.0, 88.0], index=index)
+    told = worst_fall_without_the_currency(steady_in_dollars, rates)
+    assert told['跌幅'] == pytest.approx(-0.12, abs=0.005)
+    assert told['美元計價'] == pytest.approx(0.0, abs=0.005)
+
+
+def test_without_a_rate_series_it_declines_to_guess():
+    prices = _fall([100, 90, 80, 85])
+    assert worst_fall_without_the_currency(prices, pd.Series(dtype=float)) is None
+    assert worst_fall_without_the_currency(prices, None) is None

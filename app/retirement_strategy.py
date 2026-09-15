@@ -163,11 +163,65 @@ def backtest_prices(today):
     return histories[growth], histories[buffer]
 
 
-def income_chart(run):
+# Measured off the series, never looked up: the window moves as the data does, and a list
+# of dates written down here would go stale without anyone noticing.
+EPISODE_THRESHOLD = 0.08
+SHADE_DEEPER_THAN = 0.15
+SHADE_COLOUR = '#FF5263'
+
+# These names are the one thing on the chart that does not come out of the prices. They are
+# general market knowledge, and the page says so -- an episode nobody here can name keeps
+# its dates and its depth and goes unlabelled rather than being given a plausible story.
+EPISODE_NAMES = {
+    (2020, 3): 'COVID-19 疫情崩盤',
+    (2022, 6): '2022 通膨升息空頭',
+    (2024, 8): '2024 夏季全球急跌',
+    (2025, 4): '2025 關稅衝擊',
+}
+
+
+def drawdown_episodes(prices, threshold=EPISODE_THRESHOLD):
+    """Every peak-to-trough fall deeper than `threshold`, oldest first.
+
+    An episode runs from the high it fell from to the day it got back there, so the
+    recovery is part of it; the one still open at the end of the data has no recovery date
+    and says so rather than pretending the last row is one.
+    """
+    prices = prices.dropna()
+    if len(prices) < 2:
+        return []
+    drawdown = prices / prices.cummax() - 1
+    spans, peak, falling = [], None, False
+    for when, value in drawdown.items():
+        if not falling and value < -1e-9:
+            # The last day at the high, not the first: a high held for a week is not
+            # a week of falling, and shading it as one would overstate every episode.
+            history = prices.loc[:when]
+            falling, peak = True, history[history == history.max()].index[-1]
+        elif falling and value >= -1e-9:
+            spans.append((peak, when))
+            falling = False
+    if falling:
+        spans.append((peak, None))
+    found = []
+    for peak, recovered in spans:
+        segment = drawdown.loc[peak:] if recovered is None else drawdown.loc[peak:recovered]
+        if segment.min() > -threshold:
+            continue
+        trough = segment.idxmin()
+        found.append({'高點': peak, '谷底': trough, '收復': recovered,
+                      '跌幅': float(segment.min()),
+                      '名稱': EPISODE_NAMES.get((trough.year, trough.month))})
+    return found
+
+
+def income_chart(run, episodes=()):
     """Monthly income as bars against total assets as a line, on their own scales.
 
     One scale for both would flatten the income to nothing: the bars are a month's living
     costs and the line is the principal they come out of, two orders of magnitude apart.
+    The shaded spans are the growth pool's own falls, so what the income did through one is
+    read off the same picture rather than taken on trust.
     """
     frame = run.reset_index()
     frame['每月生活費（萬）'] = frame['當月生活費'] / 10000
@@ -180,16 +234,55 @@ def income_chart(run):
                alt.Tooltip('總資產（萬）:Q', format=',.0f'),
                alt.Tooltip('成長池（萬）:Q', format=',.0f'),
                alt.Tooltip('緩衝池（萬）:Q', format=',.0f')]
-    bars = alt.Chart(frame).mark_bar(color=INCOME_COLOUR, opacity=.9).encode(
+    layers = []
+    marked = [e for e in episodes if e['跌幅'] <= -SHADE_DEEPER_THAN]
+    if marked:
+        spans = pd.DataFrame([
+            {'起': e['高點'], '迄': e['收復'] or run.index[-1],
+             '事件': e['名稱'] or '未命名的回撤', '跌幅': e['跌幅']} for e in marked])
+        layers.append(alt.Chart(spans).mark_rect(opacity=.16, color=SHADE_COLOUR).encode(
+            x=alt.X('起:T', title=None), x2='迄:T',
+            tooltip=['事件:N', alt.Tooltip('起:T', format='%Y/%m'),
+                     alt.Tooltip('迄:T', format='%Y/%m'),
+                     alt.Tooltip('跌幅:Q', format='.1%')]))
+    layers.append(alt.Chart(frame).mark_bar(color=INCOME_COLOUR, opacity=.9).encode(
         x=when, y=alt.Y('每月生活費（萬）:Q', title='每月生活費（萬元）',
                         axis=alt.Axis(titleColor=INCOME_COLOUR, labelColor=INCOME_COLOUR)),
-        tooltip=tooltip)
-    line = alt.Chart(frame).mark_line(color=ASSET_COLOUR, strokeWidth=2.5).encode(
+        tooltip=tooltip))
+    layers.append(alt.Chart(frame).mark_line(color=ASSET_COLOUR, strokeWidth=2.5).encode(
         x=when, y=alt.Y('總資產（萬）:Q', title='總資產（萬元）',
                         axis=alt.Axis(titleColor=ASSET_COLOUR, labelColor=ASSET_COLOUR,
                                       format=',.0f')),
-        tooltip=tooltip)
-    return alt.layer(bars, line).resolve_scale(y='independent').properties(height=400)
+        tooltip=tooltip))
+    if marked:
+        names = pd.DataFrame([
+            {'起': e['高點'], '事件': (e['名稱'] or '回撤') + f" {e['跌幅']:.0%}"}
+            for e in marked])
+        layers.append(alt.Chart(names).mark_text(
+            align='left', baseline='top', dx=4, dy=2, fontSize=11, color=SHADE_COLOUR
+        ).encode(x=alt.X('起:T', title=None), y=alt.value(0), text='事件:N'))
+    return alt.layer(*layers).resolve_scale(y='independent').properties(height=400)
+
+def worst_fall_without_the_currency(prices, rates):
+    """A NT$-quoted fund's worst fall, and what the same span did with the rate divided out.
+
+    00865B holds US treasuries and quotes in NT$, so a strengthening NT$ reads on the chart
+    as the buffer losing money while the asset behind it did nothing of the kind. The buffer
+    is the part of this design that is supposed to hold still, so the difference between
+    those two numbers is worth naming rather than leaving on the chart unexplained.
+    """
+    prices = prices.dropna()
+    if len(prices) < 2 or rates is None or len(rates) == 0:
+        return None
+    drawdown = prices / prices.cummax() - 1
+    trough = drawdown.idxmin()
+    peak = prices.loc[:trough].idxmax()
+    aligned = rates.reindex(prices.index.union(rates.index)).ffill().reindex(prices.index)
+    in_dollars = (prices / aligned).dropna()
+    if peak not in in_dollars.index or trough not in in_dollars.index:
+        return None
+    return {'跌幅': float(drawdown.min()), '高點': peak, '谷底': trough,
+            '美元計價': float(in_dollars.loc[trough] / in_dollars.loc[peak] - 1)}
 
 
 def _caption(card, title, value, note):
@@ -213,10 +306,36 @@ def _render_backtest(principal, share, transfer_rate):
     st.caption(f'{growth_symbol} 成長池 ＋ {buffer_symbol} 緩衝池 · '
                f'{first:%Y/%m} — {last:%Y/%m}（{years:.1f} 年，{len(run)} 個月）· '
                f'起始 {wan(principal)} · 撥出率 {transfer_rate:.1%}、領出率 {WITHDRAW_RATE:.0%}')
-    st.altair_chart(income_chart(run), width='stretch')
+    # Daily, and only over the window both holdings have. Month ends would have called
+    # COVID a 22.3% fall when it was 33.6% and lost the 2025 one entirely; the growth
+    # pool's own history reaches back to 2008, which is a decade the buffer -- and so
+    # this chart -- knows nothing about. The shading is a span of dates either way.
+    common = pd.concat({'growth': growth_prices, 'buffer': buffer_prices},
+                       axis=1).dropna(how='any').sort_index()
+    episodes = drawdown_episodes(common['growth'])
+    st.altair_chart(income_chart(run, episodes), width='stretch')
     st.caption('金色長條：那個月實際領到的生活費（右軸為總資產，兩者刻度不同）。'
                '青綠色線：成長池＋緩衝池的合計市值，已扣掉每個月領走的錢。'
-               '年度金額在每個週年重算一次，之後十二個月固定，所以長條是一年一階。')
+               '年度金額在每個週年重算一次，之後十二個月固定，所以長條是一年一階。'
+               f'紅色區塊：成長池跌超過 {SHADE_DEEPER_THAN:.0%} 的期間，由高點畫到收復當月。')
+
+    if episodes:
+        rows = ['| 期間 | 成長池跌幅 | 收復 | 同期緩衝池 | 可能對應的事件 |', '|---|---|---|---|---|']
+        for item in episodes:
+            recovered = (f'{(item["收復"] - item["谷底"]).days} 天'
+                         if item['收復'] is not None else '**尚未收復**')
+            pool = common['buffer'].asof(item['谷底']) / common['buffer'].asof(item['高點']) - 1
+            rows.append(f'| {item["高點"]:%Y/%m} — {item["谷底"]:%Y/%m} | '
+                        f'{item["跌幅"]:.1%} | {recovered} | {pool:+.1%} | '
+                        f'{item["名稱"] or "—"} |')
+        with st.expander(f'這段歷史經歷過的震盪（成長池跌超過 {EPISODE_THRESHOLD:.0%} 的 '
+                         f'{len(episodes)} 次）', expanded=True):
+            st.markdown(chr(10).join(rows))
+            st.caption('**日期與跌幅是從行情算出來的；最後一欄的名稱不是。** '
+                       '那是一般市場認知，程式無法驗證，也不保證是唯一或主要的原因；'
+                       '認不出來的就留白，不硬給一個說法。'
+                       '「同期緩衝池」是同一段期間緩衝池自己的漲跌 —— '
+                       '**這一欄才是這個設計成立與否的關鍵**：它撐住了，生活費才撐得住。')
 
     paid = yearly_income(run)
     cards = st.columns(4)
@@ -253,6 +372,21 @@ def _render_backtest(principal, share, transfer_rate):
                 f'**{run["緩衝池"].iloc[-1] / run["總資產"].iloc[-1]:.1%}** |\n')
             st.caption('生活費領得多，期末資產就少 —— 兩欄一起看才看得出代價。'
                        '緩衝池佔比偏離一成，代表這個撥出率下規則的自我平衡點不在原來的位置。')
+
+    # The buffer is the half of the design that is supposed to hold still. On this history
+    # it did not, and the reason is not in the bonds -- so say which it was.
+    from market import fx_rates
+    currency = worst_fall_without_the_currency(buffer_prices, fx_rates())
+    if currency and currency['跌幅'] <= -0.05:
+        st.warning(
+            f'**緩衝池自己也跌過 {abs(currency["跌幅"]):.1%}**'
+            f'（{currency["高點"]:%Y/%m} → {currency["谷底"]:%Y/%m}），'
+            f'但同一段期間用美元計價只有 {currency["美元計價"]:+.1%} —— '
+            f'**那不是債券跌，是台幣升值。** {buffer_symbol} 持有的是美國公債、以台幣掛牌，'
+            '沒有避險。對一個用台幣過日子的人來說，這代表'
+            '**緩衝池並不像規則假設的那麼穩**，而成長池（VT）同樣是未避險的美元曝險，'
+            '兩個池子會在台幣升值時一起縮水。'
+            '**這是退休5／退休6 本身的性質，不是回測的瑕疵。**')
 
     st.caption('**這是一段 6.8 年的歷史，不是長期驗證。** 期間只夠涵蓋 2020 年的急跌與 '
                '2022 年的股債同跌，沒有一次完整的長空頭。'
