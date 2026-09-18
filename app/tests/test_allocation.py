@@ -121,3 +121,14 @@ st.number_input('金額', key='investment_amount_wan')
     assert not app.exception
     assert app.session_state.chosen_named_symbols == list(six['weights'])
     assert app.session_state.applied_weights == pytest.approx([.9, .1])
+
+    # 退休7 is the third of the same shape, with Taiwan as the growth pool. It shares the
+    # buffer with the other two, which is what lands it on the same window as 退休6.
+    seven = allocation.PRESETS['退休7']
+    assert list(seven['weights'].values()) == [90.0, 10.0]
+    assert list(seven['weights'])[1] == list(five['weights'])[1], '緩衝池要是同一檔'
+    assert currency_of(list(seven['weights'])[0]) == 'TWD'
+    app.selectbox(key='portfolio_preset').select('退休7').run()
+    assert not app.exception
+    assert app.session_state.chosen_named_symbols == list(seven['weights'])
+    assert app.session_state.applied_weights == pytest.approx([.9, .1])

@@ -1,7 +1,8 @@
 import pandas as pd
 import pytest
 from allocation import PRESETS
-from retirement_strategy import (BACKTEST_PRESET, BUFFER_YIELD, HELD_FRACTION, ORIGINAL,
+from retirement_strategy import (BACKTEST_DEFAULT, BACKTEST_NOTES, BACKTEST_PRESETS,
+                                 BUFFER_YIELD, HELD_FRACTION, ORIGINAL,
                                  POSTER, PRESET, WITHDRAW_RATE, backtest,
                                  backtest_holdings, growth_share, income_chart,
                                  month_ends, monthly_execution_gain, pool_plan,
@@ -165,10 +166,12 @@ def test_one_row_per_month_and_no_month_invented():
 
 
 def test_the_backtest_holdings_are_read_off_the_preset():
-    growth, buffer = backtest_holdings()
-    weights = PRESETS[BACKTEST_PRESET]['weights']
-    assert weights[growth] > weights[buffer]
-    assert set([growth, buffer]) == set(weights)
+    for preset in BACKTEST_PRESETS:
+        growth, buffer = backtest_holdings(preset)
+        weights = PRESETS[preset]['weights']
+        assert weights[growth] > weights[buffer], preset
+        assert set([growth, buffer]) == set(weights), preset
+    assert backtest_holdings() == backtest_holdings(BACKTEST_DEFAULT)
 
 
 def test_the_two_readings_keep_their_own_scales():
@@ -323,3 +326,61 @@ def test_a_history_with_no_january_at_all_is_still_refused():
     flat = pd.Series([100.0] * 10, index=index)
     with pytest.raises(ValueError):
         backtest(flat, flat, 3000 * 10000, 0.9)
+
+
+def test_all_three_backtest_presets_are_the_same_rule_in_different_clothes():
+    """退休6 and 退休7 exist to be 退休5 over a period long enough to look at. That only works
+    if they differ from it in the growth pool and in nothing else -- same ratio, same buffer,
+    same principal. Sharing the buffer is also what puts 6 and 7 on one window."""
+    shapes = {name: PRESETS[name] for name in BACKTEST_PRESETS}
+    buffers, ratios, amounts = set(), set(), set()
+    for name, config in shapes.items():
+        growth, buffer = backtest_holdings(name)
+        assert config['weights'][growth] == 90.0, name
+        assert config['weights'][buffer] == 10.0, name
+        buffers.add(buffer)
+        ratios.add(tuple(sorted(config['weights'].values())))
+        amounts.add(config['amount_wan'])
+    assert len(buffers) == 1, f'緩衝池不同就落不到同一段期間：{buffers}'
+    assert len(ratios) == 1 and len(amounts) == 1
+
+
+def test_every_offered_preset_says_what_picking_it_means():
+    """The numbers under the chart change completely with the choice; an unlabelled option
+    would leave a reader comparing two things without being told what they are."""
+    for name in BACKTEST_PRESETS:
+        assert BACKTEST_NOTES.get(name), name
+    assert BACKTEST_DEFAULT in BACKTEST_PRESETS
+
+
+def test_the_taiwan_preset_is_flagged_for_what_the_window_cannot_show():
+    """退休7 wins on this sample by a wide margin, and the sample is a TSMC/AI supercycle.
+    Shipping the number without that beside it would read as a recommendation."""
+    note = BACKTEST_NOTES['退休7']
+    assert '台積電' in note
+    assert '不是可以外推' in note or '外推' in note
+
+
+def test_the_share_follows_whichever_preset_is_being_run():
+    for name in BACKTEST_PRESETS:
+        weights = PRESETS[name]['weights']
+        assert growth_share(PRESET, name) == pytest.approx(
+            max(weights.values()) / sum(weights.values()))
+    # The original ratio is a property of the design, not of any preset's weights.
+    assert growth_share(ORIGINAL, '退休7') == pytest.approx(100 / 112)
+
+
+def test_a_faster_growth_pool_leaves_a_thinner_buffer():
+    """The page says the buffer settles near a tenth. It does at the return gap that algebra
+    was solved for -- 退休7 ends at 5.7% against 退休6's 9.7% on the same window. So "stays at
+    a tenth" is a result of those returns, not something the rule guarantees."""
+    slow_g, slow_b = _flat(months=85, growth_step=0.005)
+    fast_g, fast_b = _flat(months=85, growth_step=0.012)
+    slow = backtest(slow_g, slow_b, 3000 * 10000, 0.9)
+    fast = backtest(fast_g, fast_b, 3000 * 10000, 0.9)
+
+    def ending_share(run):
+        return run['緩衝池'].iloc[-1] / run['總資產'].iloc[-1]
+
+    assert ending_share(fast) < ending_share(slow)
+    assert ending_share(slow) < 0.9, 'sanity: the buffer is the small pool'

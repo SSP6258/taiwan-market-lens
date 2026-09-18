@@ -515,6 +515,10 @@ def test_the_retirement_tab_draws_the_backtest_and_offers_the_rate():
         assert not app.exception
         rate = pick(app, "slider", "每年從成長池撥出（%）")
         assert rate.value == 4.0, "the default has to be the rate the page explains"
+        which = pick(app, "radio", "用哪個配置回測")
+        assert list(which.options) == ["退休5", "退休6", "退休7"]
+        # 退休5 has no history to run, so the one that can be looked at is the default.
+        assert which.value == "退休6"
         assert len(app.get("vega_lite_chart")) == 1, "the backtest chart never rendered"
         shown = {m.label: m.value for m in app.metric}
         assert "期末總資產" in shown and shown["期末總資產"].endswith("萬")

@@ -41,17 +41,42 @@ POSTER = Path(__file__).resolve().parent.parent / 'analysis' / 'retirement5-orig
 ORIGINAL = '原始設計 100：12'
 PRESET = 'APP 預設（退休5／退休6）'
 
-# 退休5 holds 009826, listed in July 2026, so it has no history to run the rule over.
-# 退休6 is the same shape in instruments that do -- that is why it exists.
-BACKTEST_PRESET = '退休6'
+# The three presets that are this rule, offered together because the one a reader would
+# actually hold is the one with no history: 009826 listed in July 2026. 退休6 and 退休7
+# differ from it, and from each other, in the growth pool and nothing else -- and they
+# share the buffer, so they land on the same window and can be read against each other.
+BACKTEST_PRESETS = ('退休5', '退休6', '退休7')
+BACKTEST_DEFAULT = '退休6'
 BACKTEST_FROM = date(2008, 1, 1)
 
+# What a reader has to know about the holding they just picked. Kept beside the choice
+# rather than in a footnote: the numbers underneath change completely with it.
+BACKTEST_NOTES = {
+    '退休5': ('**這是真的要持有的配置**，但 009826 於 2026-07-22 才上市，'
+             '沒有足夠長的歷史可以跑這條規則 —— 退休6 與退休7 就是為此存在的替身。'),
+    '退休6': ('成長池是**全世界股票**（VT），以美元計價、自動換算台幣，'
+             '所以報酬含匯率變動。這是退休5 在資產類別上最接近的替身。'),
+    '退休7': ('成長池是**台股**（0050）。它跑出來的數字會比退休6 好很多，'
+             '但那是**單一市場、而且超過一半集中在台積電**的結果 —— '
+             '起始就有整體一成半以上押在同一家公司。'
+             '而這段期間正好是台積電與 AI 的超級循環：'
+             '專案內另一份量測（2006-06 至 2026-08）是台股年化 13.68%、全球 8.48%，'
+             '**那個差距是這段歷史的結果，不是可以外推的前提**。'
+             '真正看不到的風險是同向性：台海若出事，台股與台幣會一起重挫，'
+             '而以台幣計價的世界股票反而會因台幣貶值而上漲 —— '
+             '**那個情境在這段樣本裡一次都沒發生過。**'),
+}
 
-def growth_share(shape):
-    """The growth pool's share of the whole, read off the preset rather than restated here."""
+
+def growth_share(shape, preset='退休5'):
+    """The growth pool's share of the whole, read off the preset rather than restated here.
+
+    `preset` so the backtest follows whichever of the three is being run; they are all
+    90:10 today, and this is what keeps the arithmetic honest if one of them ever is not.
+    """
     if shape == ORIGINAL:
         return 100 / 112
-    weights = PRESETS['退休5']['weights']
+    weights = PRESETS[preset]['weights']
     return max(weights.values()) / sum(weights.values())
 
 
@@ -167,16 +192,16 @@ TRANSFER_MONTH = '撥款月（重算今年金額）'
 ASSET_COLOUR = '#35CDBF'
 
 
-def backtest_holdings():
-    weights = PRESETS[BACKTEST_PRESET]['weights']
+def backtest_holdings(preset=BACKTEST_DEFAULT):
+    weights = PRESETS[preset]['weights']
     return max(weights, key=weights.get), min(weights, key=weights.get)
 
 
-@st.cache_data(ttl=3600, max_entries=4, show_spinner=False)
-def backtest_prices(today):
-    """The two holdings of 退休6, over everything they have. `today` keys the cache."""
+@st.cache_data(ttl=3600, max_entries=8, show_spinner=False)
+def backtest_prices(today, preset=BACKTEST_DEFAULT):
+    """One preset's two holdings, over everything they have. `today` keys the cache."""
     from market import load_frame
-    growth, buffer = backtest_holdings()
+    growth, buffer = backtest_holdings(preset)
     histories, failures, _, _ = load_frame([growth, buffer], BACKTEST_FROM, today, 'Adj Close')
     if failures:
         raise ValueError('、'.join(f'{s}：{why[:100]}' for s, why in failures.items()))
@@ -317,16 +342,41 @@ def _caption(card, title, value, note):
     card.metric(title, value, delta=note, delta_color='off', delta_arrow='off')
 
 
-def _render_backtest(principal, share, transfer_rate):
-    growth_symbol, buffer_symbol = backtest_holdings()
-    st.markdown(f'### 這條規則走過真實行情：{BACKTEST_PRESET}')
+def _render_backtest(principal, shape, transfer_rate):
+    st.markdown('### 這條規則走過真實行情')
+    preset = st.radio(
+        '用哪個配置回測', BACKTEST_PRESETS,
+        index=BACKTEST_PRESETS.index(BACKTEST_DEFAULT), horizontal=True,
+        key='retirement_backtest_preset',
+        help='三個都是同一條規則、同樣 90：10，只差成長池裝什麼。'
+             '緩衝池是同一檔，所以退休6 與退休7 落在同一段期間，可以直接對照。')
+    growth_symbol, buffer_symbol = backtest_holdings(preset)
+    share = growth_share(shape, preset)
+    weights = PRESETS[preset]['weights']
+    st.caption(f'**{preset}**：{growth_symbol} {weights[growth_symbol]:.0f}% ＋ '
+               f'{buffer_symbol} {weights[buffer_symbol]:.0f}%')
+    note = BACKTEST_NOTES.get(preset)
+    if note:
+        (st.warning if preset == '退休7' else st.info)(note)
+    prices = None
     try:
-        growth_prices, buffer_prices = backtest_prices(
-            datetime.now(ZoneInfo('Asia/Taipei')).date())
+        prices = backtest_prices(datetime.now(ZoneInfo('Asia/Taipei')).date(), preset)
+        growth_prices, buffer_prices = prices
         run = backtest(growth_prices, buffer_prices, principal, share, transfer_rate)
     except Exception as exc:
-        st.warning(f'回測暫時無法進行：{exc}')
-        st.caption('上面的年度試算不受影響，它不需要行情。')
+        st.warning(f'**{preset} 無法回測：**{exc}')
+        # Name the day the overlap starts, not just how many months it is: with these presets
+        # the answer is almost always "the growth pool has not existed long enough", which is
+        # the whole reason the other two are on the list at all.
+        if prices is not None:
+            overlap = pd.concat({'g': prices[0], 'b': prices[1]}, axis=1).dropna(how='any')
+            if len(overlap):
+                span = (overlap.index[-1] - overlap.index[0]).days / 365.25
+                st.caption(f'{growth_symbol} 與 {buffer_symbol} 只在 '
+                           f'{overlap.index[0]:%Y/%m/%d} 之後同時有行情，'
+                           f'到 {overlap.index[-1]:%Y/%m/%d} 共 {span:.2f} 年。')
+        st.caption('上面的年度試算不受影響，它不需要行情。'
+                   '想看這條規則跑起來的樣子，改選退休6（世界股票）或退休7（台股）。')
         return
 
     first, last = run.index[0], run.index[-1]
@@ -386,6 +436,17 @@ def _render_backtest(principal, share, transfer_rate):
         _caption(cards[3], '最差的單年變化', f'{worst:+.1%}',
                  '同期成長池最大月底回撤 '
                  f'{(run["成長池"] / run["成長池"].cummax() - 1).min():.1%}')
+
+    # The "為什麼不需要再平衡" section says the buffer settles near a tenth. It does -- at the
+    # return gap that algebra was solved for. A faster growth pool dilutes it, and that is
+    # measurable right here, so it gets said next to the number rather than left to contradict
+    # the expander further down the page.
+    share_now = run['緩衝池'].iloc[-1] / run['總資產'].iloc[-1]
+    st.caption(f'期末緩衝池佔總資產 **{share_now:.1%}**（起始 {1 - share:.1%}）。'
+               '規則的自我平衡點是 0.04k ÷ (1 − k)，而 k 取決於兩個池子的報酬差 —— '
+               '**成長池跑得越快，緩衝池被稀釋得越薄**，'
+               '所以「穩定在一成」是那組報酬假設下的結果，不是規則保證的常數。'
+               '想看代數請展開下方「為什麼不需要再平衡」。')
     # A slider nobody can compare against is just a number that moves. Same history, same
     # principal, only the rate different -- that is the whole question being asked.
     if abs(transfer_rate - TRANSFER_RATE) > 1e-9:
@@ -429,8 +490,7 @@ def _render_backtest(principal, share, transfer_rate):
     st.caption(f'**這是一段 {years:.1f} 年的歷史，不是長期驗證。** '
                '期間只夠涵蓋 2020 年的急跌與 2022 年的股債同跌，沒有一次完整的長空頭。'
                f'期間受 {buffer_symbol} 的上市日限制（{growth_symbol} 本身有更長的歷史）。'
-               '未計稅、費用與交易成本；退休5 的 009826 於 2026 年才上市，'
-               '所以這裡跑的是它的長歷史替身。')
+               '未計稅、費用與交易成本。')
 
 
 def render_strategy():
@@ -485,7 +545,7 @@ def render_strategy():
         st.caption(f'撥出 {wan(plan["transfer"])}、領出 {wan(plan["spend"])}，'
                    '撥入多過領出，緩衝池會慢慢變厚。')
 
-    _render_backtest(principal_wan * 10000, share, transfer_rate)
+    _render_backtest(principal_wan * 10000, shape, transfer_rate)
 
     st.markdown('### 想看細節的話')
     with st.expander('一年只做哪兩個動作'):

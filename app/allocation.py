@@ -17,6 +17,11 @@ PRESETS = {
     # traded since 2008, so this is the one that can be looked at over a market cycle.
     # Priced in dollars and converted to NT$, so its return carries the currency as well.
     '退休6': {'weights': {'VT': 90.0, '00865B.TW': 10.0}, 'amount_wan': 3000.0},
+    # The same shape again with Taiwan as the growth pool, so the rule can be looked at
+    # over one market instead of all of them. 0050 goes back far enough to matter and,
+    # sharing the buffer, lands on the same window as 退休6 -- the two differ in one
+    # holding and nothing else, which is the only way the comparison means anything.
+    '退休7': {'weights': {'0050.TW': 90.0, '00865B.TW': 10.0}, 'amount_wan': 3000.0},
 }
 
 
