@@ -181,6 +181,74 @@ def yearly_income(run):
     return by_year.sum()[by_year.count() == 12]
 
 
+def shared_window(prices):
+    """The dates every one of these presets has both of its holdings priced on.
+
+    Each preset run over its own window would reward whichever one happens to hold the
+    youngest fund -- the 配置比較 page intersects its dates for the same reason. Today all
+    three share the buffer so their windows already coincide; this is what keeps the
+    comparison honest the day one of them does not.
+    """
+    common = None
+    for growth, buffer in prices.values():
+        paired = pd.concat({'g': growth, 'b': buffer}, axis=1).dropna(how='any')
+        if paired.empty:
+            return None
+        common = paired.index if common is None else common.intersection(paired.index)
+    return common if common is not None and len(common) >= 2 else None
+
+
+def compare_presets(prices, principal, share, transfer_rate=TRANSFER_RATE,
+                    withdraw_rate=WITHDRAW_RATE):
+    """One row per preset, every one of them run over the single window they all share.
+
+    `prices` maps a preset name to its (growth, buffer) series. A preset whose history is
+    too short to hold a year is left out rather than shown with a blank row: the reason it
+    cannot run belongs next to the choice, not in a table of results.
+    """
+    # Drop a preset that cannot hold a year on its own history *before* intersecting.
+    # Left in, 退休5's few weeks would shrink the shared window to those weeks and take
+    # every other preset down with it -- a comparison of nothing against nothing.
+    usable = {}
+    for name, (growth, buffer) in prices.items():
+        try:
+            backtest(growth, buffer, principal, share, transfer_rate, withdraw_rate)
+        except ValueError:
+            continue
+        usable[name] = (growth, buffer)
+    window = shared_window(usable)
+    if window is None:
+        return pd.DataFrame(), None
+    rows, covered = {}, None
+    for name, (growth, buffer) in usable.items():
+        try:
+            run = backtest(growth.loc[window], buffer.loc[window], principal, share,
+                           transfer_rate, withdraw_rate)
+        except ValueError:
+            continue
+        # What the runs cover, not the raw overlap: they all start at the same first
+        # January, and quoting the data's first day would name months nobody ran.
+        covered = (run.index[0], run.index[-1])
+        paid = yearly_income(run)
+        if paid.empty:
+            continue
+        falls = paid.pct_change().dropna()
+        rows[name] = {
+            '成長池': max(PRESETS[name]['weights'], key=PRESETS[name]['weights'].get),
+            '首年生活費': float(paid.iloc[0]),
+            '末年': int(paid.index[-1]),
+            '末年生活費': float(paid.iloc[-1]),
+            '最差單年變化': float(falls.min()) if len(falls) else float('nan'),
+            '期末總資產': float(run['總資產'].iloc[-1]),
+            '成長池最大回撤': float((run['成長池'] / run['成長池'].cummax() - 1).min()),
+            '期末緩衝池佔比': float(run['緩衝池'].iloc[-1] / run['總資產'].iloc[-1]),
+        }
+    if not rows:
+        return pd.DataFrame(), None
+    frame = pd.DataFrame(rows).T
+    return frame, covered
+
+
 # Two readings on one picture, so they need to stay apart: the money you live on, and what
 # it is coming out of. Gold is the income because that is the line a reader is here for.
 INCOME_COLOUR = '#F5C451'
@@ -493,6 +561,56 @@ def _render_backtest(principal, shape, transfer_rate):
                '未計稅、費用與交易成本。')
 
 
+def _render_comparison(principal, shape, transfer_rate):
+    """Every preset that can run, side by side on the one window they all have.
+
+    Switching the radio back and forth and remembering the numbers is not a comparison.
+    The point of putting them in one table is that the column which wins on income is the
+    same column that loses on drawdown, and that only shows when they are next to each other.
+    """
+    prices, unavailable = {}, []
+    today = datetime.now(ZoneInfo('Asia/Taipei')).date()
+    for name in BACKTEST_PRESETS:
+        try:
+            prices[name] = backtest_prices(today, name)
+        except Exception:
+            unavailable.append(name)
+    share = growth_share(shape)
+    frame, window = compare_presets(prices, principal, share, transfer_rate)
+    if len(frame) < 2:
+        return
+    # Fetched but dropped counts as left out too -- 退休5 arrives fine and is then
+    # too short to run, which is the case a reader is most likely to ask about.
+    left_out = unavailable + [n for n in prices if n not in frame.index]
+
+    st.markdown('#### 並排比較')
+    columns = list(frame.index)
+    head = '| 同一段期間、同一筆本金 | ' + ' | '.join(columns) + ' |'
+    rule = '|---' * (len(columns) + 1) + '|'
+    def row(label, render):
+        return f'| {label} | ' + ' | '.join(render(frame.loc[c]) for c in columns) + ' |'
+    last_year = int(frame['末年'].max())
+    st.markdown('\n'.join([
+        head, rule,
+        row('成長池', lambda r: f"`{r['成長池']}`"),
+        row('首年生活費', lambda r: wan(r['首年生活費'])),
+        row(f'{last_year} 年生活費', lambda r: wan(r['末年生活費'])),
+        row('最差的單年變化', lambda r: f"{r['最差單年變化']:+.1%}"),
+        row('期末總資產', lambda r: wan(r['期末總資產'])),
+        row('成長池最大月底回撤', lambda r: f"{r['成長池最大回撤']:.1%}"),
+        row('期末緩衝池佔比', lambda r: f"{r['期末緩衝池佔比']:.1%}"),
+    ]))
+    st.caption(
+        f'期間 {window[0]:%Y/%m/%d} — {window[1]:%Y/%m/%d}，'
+        '取的是這些配置**都有行情**的交集 —— 各自用自己的期間去比，'
+        '等於獎勵那個剛好持有最年輕標的的配置。'
+        f'撥出率 {transfer_rate:.1%}、領出率 {WITHDRAW_RATE:.0%}，起始 {wan(principal)}。'
+        + (f'（{"、".join(left_out)} 沒有納入：歷史不足一個完整年度。）' if left_out else ''))
+    st.info('**收入與期末資產贏的那一欄，回撤與緩衝池厚度也是輸的那一欄。** '
+            '兩件事是同一個選擇的兩面，分開看就會只看到想看的那一面。'
+            '報酬差距是這段特定歷史的結果 —— 上面選到退休7 時的警語講的就是這件事。')
+
+
 def render_strategy():
     st.subheader('緩衝池退休法：成長池 ＋ 緩衝池')
     st.markdown(
@@ -546,6 +664,7 @@ def render_strategy():
                    '撥入多過領出，緩衝池會慢慢變厚。')
 
     _render_backtest(principal_wan * 10000, shape, transfer_rate)
+    _render_comparison(principal_wan * 10000, shape, transfer_rate)
 
     st.markdown('### 想看細節的話')
     with st.expander('一年只做哪兩個動作'):

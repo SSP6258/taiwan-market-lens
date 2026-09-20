@@ -8,7 +8,8 @@ from retirement_strategy import (BACKTEST_DEFAULT, BACKTEST_NOTES, BACKTEST_PRES
                                  month_ends, monthly_execution_gain, pool_plan,
                                  yearly_income, EPISODE_NAMES, drawdown_episodes,
                                  worst_fall_without_the_currency, INCOME_COLOUR,
-                                 TRANSFER_COLOUR, ORDINARY_MONTH, TRANSFER_MONTH)
+                                 TRANSFER_COLOUR, ORDINARY_MONTH, TRANSFER_MONTH,
+                                 compare_presets, shared_window)
 
 
 def test_the_original_ratio_pays_out_exactly_what_it_moved_in():
@@ -384,3 +385,71 @@ def test_a_faster_growth_pool_leaves_a_thinner_buffer():
 
     assert ending_share(fast) < ending_share(slow)
     assert ending_share(slow) < 0.9, 'sanity: the buffer is the small pool'
+
+
+def _series(months, start='2020-01-01', step=0.004, base=100.0):
+    index = pd.date_range(start, periods=months, freq='ME')
+    return pd.Series([base * (1 + step) ** i for i in range(months)], index=index)
+
+
+def test_the_shared_window_is_the_overlap_not_the_union():
+    prices = {'退休6': (_series(60), _series(60, base=50, step=0.001)),
+              '退休7': (_series(40, start='2021-01-01'),
+                        _series(40, start='2021-01-01', base=50, step=0.001))}
+    window = shared_window(prices)
+    assert window is not None
+    assert window[0] == pd.Timestamp('2021-01-31')
+    assert window[-1] == pd.Timestamp('2024-04-30')
+
+
+def test_a_preset_too_short_to_run_does_not_drag_the_others_down_with_it():
+    """退休5 has a few weeks. Intersecting first would shrink the shared window to those
+    weeks and every preset would then fail -- a comparison of nothing against nothing."""
+    long_g, long_b = _series(85), _series(85, base=50, step=0.001)
+    prices = {'退休6': (long_g, long_b),
+              '退休7': (_series(85, step=0.008), long_b),
+              '退休5': (_series(3, start='2026-07-01'), long_b)}
+    frame, window = compare_presets(prices, 3000 * 10000, 0.9)
+    assert list(frame.index) == ['退休6', '退休7']
+    assert window is not None and (window[1] - window[0]).days > 365 * 5
+
+
+def test_every_compared_preset_is_run_over_the_same_window():
+    """Otherwise the one holding the youngest fund is rewarded for having less history."""
+    shared_b = _series(85, base=50, step=0.001)
+    prices = {'退休6': (_series(85), shared_b),
+              '退休7': (_series(100, start='2017-01-01', step=0.008), shared_b)}
+    frame, window = compare_presets(prices, 3000 * 10000, 0.9)
+    assert len(frame) == 2
+    # Same principal, same first transfer, so the first year has to be identical.
+    assert frame.loc['退休6', '首年生活費'] == pytest.approx(frame.loc['退休7', '首年生活費'])
+    assert frame.loc['退休6', '末年'] == frame.loc['退休7', '末年']
+
+
+def test_the_window_reported_is_the_one_the_runs_cover():
+    """The data overlap starts in November; the runs start at the first January. Quoting
+    the former would name months nobody ran."""
+    november = _series(40, start='2019-11-01')
+    prices = {'退休6': (november, _series(40, start='2019-11-01', base=50, step=0.001)),
+              '退休7': (_series(40, start='2019-11-01', step=0.008),
+                        _series(40, start='2019-11-01', base=50, step=0.001))}
+    frame, window = compare_presets(prices, 3000 * 10000, 0.9)
+    assert len(frame) == 2
+    assert window[0].month == 1 and window[0].year == 2020
+
+
+def test_nothing_to_compare_returns_nothing_rather_than_one_lonely_column():
+    short = _series(3, start='2026-07-01')
+    frame, window = compare_presets({'退休5': (short, short)}, 3000 * 10000, 0.9)
+    assert frame.empty and window is None
+
+
+def test_a_faster_growth_pool_reads_across_the_row_as_a_trade_not_a_win():
+    """The column that wins on income is the column that loses on drawdown. If that ever
+    stops being true the table is no longer showing a trade-off and the caption lies."""
+    shared_b = _series(85, base=50, step=0.001)
+    prices = {'退休6': (_series(85, step=0.003), shared_b),
+              '退休7': (_series(85, step=0.010), shared_b)}
+    frame, _ = compare_presets(prices, 3000 * 10000, 0.9)
+    assert frame.loc['退休7', '期末總資產'] > frame.loc['退休6', '期末總資產']
+    assert frame.loc['退休7', '期末緩衝池佔比'] < frame.loc['退休6', '期末緩衝池佔比']
