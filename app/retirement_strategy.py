@@ -45,15 +45,20 @@ PRESET = 'APP 預設（退休5／退休6）'
 # actually hold is the one with no history: 009826 listed in July 2026. 退休6 and 退休7
 # differ from it, and from each other, in the growth pool and nothing else -- and they
 # share the buffer, so they land on the same window and can be read against each other.
-BACKTEST_PRESETS = ('退休5', '退休6', '退休7')
+BACKTEST_PRESETS = ('退休5', '退休6', '退休7', '退休8')
 BACKTEST_DEFAULT = '退休6'
 BACKTEST_FROM = date(2008, 1, 1)
+
+# The buffer is a specific fund, not "whichever holding is smallest". Naming it is what
+# lets a growth pool hold more than one thing: 退休8 splits its 90% across two, and the
+# smallest-weight rule would have called one of those the buffer.
+BUFFER_SYMBOL = '00865B.TW'
 
 # What a reader has to know about the holding they just picked. Kept beside the choice
 # rather than in a footnote: the numbers underneath change completely with it.
 BACKTEST_NOTES = {
     '退休5': ('**這是真的要持有的配置**，但 009826 於 2026-07-22 才上市，'
-             '沒有足夠長的歷史可以跑這條規則 —— 退休6 與退休7 就是為此存在的替身。'),
+             '沒有足夠長的歷史可以跑這條規則 —— 其餘幾個就是為此存在的替身。'),
     '退休6': ('成長池是**全世界股票**（VT），以美元計價、自動換算台幣，'
              '所以報酬含匯率變動。這是退休5 在資產類別上最接近的替身。'),
     '退休7': ('成長池是**台股**（0050）。它跑出來的數字會比退休6 好很多，'
@@ -65,19 +70,39 @@ BACKTEST_NOTES = {
              '真正看不到的風險是同向性：台海若出事，台股與台幣會一起重挫，'
              '而以台幣計價的世界股票反而會因台幣貶值而上漲 —— '
              '**那個情境在這段樣本裡一次都沒發生過。**'),
+    '退休8': ('成長池是**兩檔**：0050（台股）50% ＋ 00662（那斯達克100）40%，'
+             '每年各提 4% 到緩衝池。**兩檔的月報酬相關 0.59**，'
+             '所以這是真的有分散效果，不是同一個賭注的兩種寫法 —— '
+             '回撤也確實比純台股淺（實測 −27.4% 對 −32.0%）。\n\n'
+             '**但兩檔押的是同一個主題。** 0050 超過一半是台積電，00662 是美國大型科技股，'
+             '而這段期間是半導體與 AI 的超級循環，兩邊都吃到同一波。'
+             '**成長池內部沒有再平衡**：實測 0050 佔成長池的比例由 55.6% 漂到 66.5%，'
+             '所以「50：40」是起始條件，不是長期會維持的東西 —— '
+             '這與第四十六次評估「成長池拆成世界＋台股」時記下的同一個問題。'),
 }
+
+
+def pool_split(preset):
+    """A preset's growth holdings and their weights, and the buffer's weight.
+
+    Everything that is not the buffer is the growth pool, however many holdings that is.
+    """
+    weights = PRESETS[preset]['weights']
+    growth = {symbol: weight for symbol, weight in weights.items() if symbol != BUFFER_SYMBOL}
+    return growth, weights.get(BUFFER_SYMBOL, 0.0)
 
 
 def growth_share(shape, preset='退休5'):
     """The growth pool's share of the whole, read off the preset rather than restated here.
 
-    `preset` so the backtest follows whichever of the three is being run; they are all
-    90:10 today, and this is what keeps the arithmetic honest if one of them ever is not.
+    `preset` so the backtest follows whichever one is being run. Summed over the growth
+    holdings, not taken from the largest: 退休8's pool is 50 ＋ 40, and the largest alone
+    would call that a 50% growth pool.
     """
     if shape == ORIGINAL:
         return 100 / 112
-    weights = PRESETS[preset]['weights']
-    return max(weights.values()) / sum(weights.values())
+    growth, buffer = pool_split(preset)
+    return sum(growth.values()) / (sum(growth.values()) + buffer)
 
 
 def pool_plan(principal, share, transfer_rate=TRANSFER_RATE, withdraw_rate=WITHDRAW_RATE):
@@ -108,28 +133,60 @@ def monthly_execution_gain(spend, annual_yield=BUFFER_YIELD):
 
 
 def month_ends(growth_prices, buffer_prices):
-    """The two series on the days both of them traded, one row per calendar month.
+    """The holdings on the days all of them traded, one row per calendar month.
 
+    `growth_prices` is one series or a frame of several; the growth columns keep their own
+    names, and a lone series becomes 'growth' so the single-holding case reads the same.
     Grouped by period rather than resampled: a resample invents a row for a month with no
     observation, and a NaN there would read as a month the pools were worth nothing.
     """
-    paired = pd.concat({'growth': growth_prices, 'buffer': buffer_prices},
-                       axis=1).dropna(how='any').sort_index()
+    frame = (growth_prices.to_frame('growth') if isinstance(growth_prices, pd.Series)
+             else growth_prices)
+    paired = frame.join(buffer_prices.rename('buffer'), how='inner').dropna(how='any')
     if paired.empty:
         return paired
+    paired = paired.sort_index()
     monthly = paired.groupby(paired.index.to_period('M')).last()
     monthly.index = monthly.index.to_timestamp(how='end').normalize()
     return monthly
 
 
+def growth_pool(prices, weights=None, since=None):
+    """The growth pool's value path: bought at `weights` on its first day, never rebalanced.
+
+    A pool of several holdings behaves exactly like one holding under this rule, and that
+    is not an approximation: 4% out of each is 4% of the total, and because the rate is the
+    same for all of them the split between them is left where the market put it. So the
+    whole rule can run on this one series.
+
+    `since` matters. The weights are opening weights, so they have to be applied on the day
+    the run opens -- normalising earlier would start the pool at proportions the market had
+    already moved away from.
+    """
+    frame = prices.to_frame('growth') if isinstance(prices, pd.Series) else prices
+    frame = frame.dropna(how='any').sort_index()
+    if since is not None:
+        frame = frame.loc[frame.index >= since]
+    if frame.empty:
+        return pd.Series(dtype=float)
+    share = (pd.Series(1.0, index=frame.columns) if weights is None
+             else pd.Series(weights, dtype=float).reindex(frame.columns))
+    if share.isna().any():
+        raise ValueError(f'成長池比重缺少：{list(share[share.isna()].index)}')
+    return frame.div(frame.iloc[0]).mul(share / share.sum(), axis=1).sum(axis=1)
+
+
 def backtest(growth_prices, buffer_prices, principal, share,
-             transfer_rate=TRANSFER_RATE, withdraw_rate=WITHDRAW_RATE):
+             transfer_rate=TRANSFER_RATE, withdraw_rate=WITHDRAW_RATE, growth_weights=None):
     """Run the rule month by month over real prices, and record what it paid out.
 
-    The year's amount is fixed once, on the anniversary, and then drawn a twelfth at a
-    time -- which is what the 執行面 section says to do, and leaves the rest of it earning
-    in the buffer rather than sitting in a wallet. Both pools are marked to the month's
-    close after the draw, so each row is an end-of-month position.
+    The year's amount is fixed once, every January, and then drawn a twelfth at a time --
+    which is what the 執行面 section says to do, and leaves the rest of it earning in the
+    buffer rather than sitting in a wallet. Both pools are marked to the month's close
+    after the draw, so each row is an end-of-month position.
+
+    `growth_prices` may be a frame of several holdings, with `growth_weights` giving their
+    opening split; see growth_pool for why that needs no change to the rule itself.
     """
     monthly = month_ends(growth_prices, buffer_prices)
     # Begin on the first January there is. Starting wherever the data happens to open
@@ -142,7 +199,9 @@ def backtest(growth_prices, buffer_prices, principal, share,
     if len(monthly) < 13:
         raise ValueError(f'需要至少 13 個月、且涵蓋一個完整年度的共同行情，'
                          f'目前只有 {len(monthly)} 個月。')
-    growth_step = monthly['growth'].pct_change().fillna(0.0)
+    # Blended on the sliced frame, so the opening weights land on the month the run opens.
+    pool = growth_pool(monthly.drop(columns='buffer'), growth_weights)
+    growth_step = pool.pct_change().fillna(0.0)
     buffer_step = monthly['buffer'].pct_change().fillna(0.0)
 
     growth, buffer = principal * share, principal * (1 - share)
@@ -181,49 +240,60 @@ def yearly_income(run):
     return by_year.sum()[by_year.count() == 12]
 
 
+def _paired(growth, buffer):
+    """One frame of a preset's holdings on the days all of them traded."""
+    frame = growth.to_frame('growth') if isinstance(growth, pd.Series) else growth
+    return frame.join(buffer.rename('buffer'), how='inner').dropna(how='any').sort_index()
+
+
 def shared_window(prices):
-    """The dates every one of these presets has both of its holdings priced on.
+    """The dates every one of these presets has all of its holdings priced on.
 
     Each preset run over its own window would reward whichever one happens to hold the
-    youngest fund -- the 配置比較 page intersects its dates for the same reason. Today all
-    three share the buffer so their windows already coincide; this is what keeps the
+    youngest fund -- the 配置比較 page intersects its dates for the same reason. Today they
+    all share the buffer so their windows already coincide; this is what keeps the
     comparison honest the day one of them does not.
     """
     common = None
     for growth, buffer in prices.values():
-        paired = pd.concat({'g': growth, 'b': buffer}, axis=1).dropna(how='any')
+        paired = _paired(growth, buffer)
         if paired.empty:
             return None
         common = paired.index if common is None else common.intersection(paired.index)
     return common if common is not None and len(common) >= 2 else None
 
 
-def compare_presets(prices, principal, share, transfer_rate=TRANSFER_RATE,
+def compare_presets(pools, principal, share, transfer_rate=TRANSFER_RATE,
                     withdraw_rate=WITHDRAW_RATE):
     """One row per preset, every one of them run over the single window they all share.
 
-    `prices` maps a preset name to its (growth, buffer) series. A preset whose history is
-    too short to hold a year is left out rather than shown with a blank row: the reason it
-    cannot run belongs next to the choice, not in a table of results.
+    `pools` maps a name to `(growth_prices, buffer_prices, growth_weights)` -- growth being
+    a frame when the pool holds more than one thing, and the weights coming from the caller
+    rather than being looked up here, so this stays a function of its arguments.
+
+    A preset whose history is too short to hold a year is left out rather than shown with a
+    blank row: the reason it cannot run belongs next to the choice, not in a table of
+    results.
     """
     # Drop a preset that cannot hold a year on its own history *before* intersecting.
     # Left in, 退休5's few weeks would shrink the shared window to those weeks and take
     # every other preset down with it -- a comparison of nothing against nothing.
     usable = {}
-    for name, (growth, buffer) in prices.items():
+    for name, (growth, buffer, weights) in pools.items():
         try:
-            backtest(growth, buffer, principal, share, transfer_rate, withdraw_rate)
+            backtest(growth, buffer, principal, share, transfer_rate, withdraw_rate,
+                     growth_weights=weights)
         except ValueError:
             continue
-        usable[name] = (growth, buffer)
-    window = shared_window(usable)
+        usable[name] = (growth, buffer, weights)
+    window = shared_window({n: (g, b) for n, (g, b, _) in usable.items()})
     if window is None:
         return pd.DataFrame(), None
     rows, covered = {}, None
-    for name, (growth, buffer) in usable.items():
+    for name, (growth, buffer, weights) in usable.items():
         try:
             run = backtest(growth.loc[window], buffer.loc[window], principal, share,
-                           transfer_rate, withdraw_rate)
+                           transfer_rate, withdraw_rate, growth_weights=weights)
         except ValueError:
             continue
         # What the runs cover, not the raw overlap: they all start at the same first
@@ -234,7 +304,7 @@ def compare_presets(prices, principal, share, transfer_rate=TRANSFER_RATE,
             continue
         falls = paid.pct_change().dropna()
         rows[name] = {
-            '成長池': max(PRESETS[name]['weights'], key=PRESETS[name]['weights'].get),
+            '成長池': pool_label(growth, weights),
             '首年生活費': float(paid.iloc[0]),
             '末年': int(paid.index[-1]),
             '末年生活費': float(paid.iloc[-1]),
@@ -245,8 +315,16 @@ def compare_presets(prices, principal, share, transfer_rate=TRANSFER_RATE,
         }
     if not rows:
         return pd.DataFrame(), None
-    frame = pd.DataFrame(rows).T
-    return frame, covered
+    return pd.DataFrame(rows).T, covered
+
+
+def pool_label(growth, weights=None):
+    """What the growth pool holds, heaviest first, for a table cell."""
+    if weights:
+        ordered = sorted(weights.items(), key=lambda pair: -pair[1])
+        return '＋'.join(f'{symbol.split(".")[0]} {weight:.0f}%' for symbol, weight in ordered)
+    columns = [growth.name] if isinstance(growth, pd.Series) else list(growth.columns)
+    return '＋'.join(str(column).split('.')[0] for column in columns)
 
 
 # Two readings on one picture, so they need to stay apart: the money you live on, and what
@@ -261,19 +339,26 @@ ASSET_COLOUR = '#35CDBF'
 
 
 def backtest_holdings(preset=BACKTEST_DEFAULT):
-    weights = PRESETS[preset]['weights']
-    return max(weights, key=weights.get), min(weights, key=weights.get)
+    """The growth pool's symbols, heaviest first, and the buffer's."""
+    growth, _ = pool_split(preset)
+    return tuple(sorted(growth, key=growth.get, reverse=True)), BUFFER_SYMBOL
 
 
-@st.cache_data(ttl=3600, max_entries=8, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=12, show_spinner=False)
 def backtest_prices(today, preset=BACKTEST_DEFAULT):
-    """One preset's two holdings, over everything they have. `today` keys the cache."""
+    """One preset's holdings, over everything they have. `today` keys the cache.
+
+    The growth pool comes back as a frame, one column per holding, so the blend can be
+    struck on the day the run opens rather than here.
+    """
     from market import load_frame
-    growth, buffer = backtest_holdings(preset)
-    histories, failures, _, _ = load_frame([growth, buffer], BACKTEST_FROM, today, 'Adj Close')
+    growth_symbols, buffer_symbol = backtest_holdings(preset)
+    histories, failures, _, _ = load_frame(list(growth_symbols) + [buffer_symbol],
+                                           BACKTEST_FROM, today, 'Adj Close')
     if failures:
         raise ValueError('、'.join(f'{s}：{why[:100]}' for s, why in failures.items()))
-    return histories[growth], histories[buffer]
+    growth = pd.concat({s: histories[s] for s in growth_symbols}, axis=1)
+    return growth, histories[buffer_symbol]
 
 
 # Measured off the series, never looked up: the window moves as the data does, and a list
@@ -416,52 +501,54 @@ def _render_backtest(principal, shape, transfer_rate):
         '用哪個配置回測', BACKTEST_PRESETS,
         index=BACKTEST_PRESETS.index(BACKTEST_DEFAULT), horizontal=True,
         key='retirement_backtest_preset',
-        help='三個都是同一條規則、同樣 90：10，只差成長池裝什麼。'
-             '緩衝池是同一檔，所以退休6 與退休7 落在同一段期間，可以直接對照。')
-    growth_symbol, buffer_symbol = backtest_holdings(preset)
+        help='都是同一條規則、同樣 90：10，只差成長池裝什麼（退休8 的成長池有兩檔，各提 4%）。'
+             '緩衝池是同一檔，所以跑得動的那幾個落在同一段期間，可以直接對照。')
+    growth_symbols, buffer_symbol = backtest_holdings(preset)
+    growth_weights, buffer_weight = pool_split(preset)
     share = growth_share(shape, preset)
-    weights = PRESETS[preset]['weights']
-    st.caption(f'**{preset}**：{growth_symbol} {weights[growth_symbol]:.0f}% ＋ '
-               f'{buffer_symbol} {weights[buffer_symbol]:.0f}%')
+    pool_text = '＋'.join(f'{s} {growth_weights[s]:.0f}%' for s in growth_symbols)
+    st.caption(f'**{preset}**：{pool_text} ＋ {buffer_symbol} {buffer_weight:.0f}%'
+               + ('　·　成長池兩檔，每年**各提 4%** 到緩衝池（總額與整池提 4% 相同，'
+                  '且兩檔的比例不受撥款影響）' if len(growth_symbols) > 1 else ''))
     note = BACKTEST_NOTES.get(preset)
     if note:
-        (st.warning if preset == '退休7' else st.info)(note)
+        (st.warning if preset in ('退休7', '退休8') else st.info)(note)
     prices = None
     try:
         prices = backtest_prices(datetime.now(ZoneInfo('Asia/Taipei')).date(), preset)
         growth_prices, buffer_prices = prices
-        run = backtest(growth_prices, buffer_prices, principal, share, transfer_rate)
+        run = backtest(growth_prices, buffer_prices, principal, share, transfer_rate,
+                       growth_weights=growth_weights)
     except Exception as exc:
         st.warning(f'**{preset} 無法回測：**{exc}')
         # Name the day the overlap starts, not just how many months it is: with these presets
         # the answer is almost always "the growth pool has not existed long enough", which is
-        # the whole reason the other two are on the list at all.
+        # the whole reason the other ones are on the list at all.
         if prices is not None:
-            overlap = pd.concat({'g': prices[0], 'b': prices[1]}, axis=1).dropna(how='any')
+            overlap = _paired(prices[0], prices[1])
             if len(overlap):
                 span = (overlap.index[-1] - overlap.index[0]).days / 365.25
-                st.caption(f'{growth_symbol} 與 {buffer_symbol} 只在 '
+                st.caption('、'.join(growth_symbols) + f' 與 {buffer_symbol} 只在 '
                            f'{overlap.index[0]:%Y/%m/%d} 之後同時有行情，'
                            f'到 {overlap.index[-1]:%Y/%m/%d} 共 {span:.2f} 年。')
         st.caption('上面的年度試算不受影響，它不需要行情。'
-                   '想看這條規則跑起來的樣子，改選退休6（世界股票）或退休7（台股）。')
+                   '想看這條規則跑起來的樣子，改選其他有夠長歷史的配置。')
         return
 
     first, last = run.index[0], run.index[-1]
     years = (last - first).days / 365.25
-    st.caption(f'{growth_symbol} 成長池 ＋ {buffer_symbol} 緩衝池 · '
+    st.caption(f'{pool_text} 成長池 ＋ {buffer_symbol} 緩衝池 · '
                f'{first:%Y/%m} — {last:%Y/%m}（{years:.1f} 年，{len(run)} 個月）· '
                f'起始 {wan(principal)} · 撥出率 {transfer_rate:.1%}、領出率 {WITHDRAW_RATE:.0%}')
-    # Daily, and only over the window both holdings have. Month ends would have called
-    # COVID a 22.3% fall when it was 33.6% and lost the 2025 one entirely; the growth
-    # pool's own history reaches back to 2008, which is a decade the buffer -- and so
-    # this chart -- knows nothing about. The shading is a span of dates either way.
-    common = pd.concat({'growth': growth_prices, 'buffer': buffer_prices},
-                       axis=1).dropna(how='any').sort_index()
-    # Only the span the chart draws: the run starts at the first January, and shading a
-    # fall from before that would stretch the axis back to a time it does not cover.
-    common = common.loc[run.index[0]:]
-    episodes = drawdown_episodes(common['growth'])
+    # Daily, and only over the window every holding has. Month ends would have called COVID
+    # a 22.3% fall when it was 33.6% and lost the 2025 one entirely; the growth pool's own
+    # history reaches back further than the buffer's, which is time this chart knows nothing
+    # about. The shading is a span of dates either way.
+    common = _paired(growth_prices, buffer_prices).loc[run.index[0]:]
+    # The pool's own falls, not one holding's: with two holdings neither of them is the
+    # thing the rule draws from, and the blend is what the income actually came out of.
+    pool_daily = growth_pool(common.drop(columns='buffer'), growth_weights)
+    episodes = drawdown_episodes(pool_daily)
     st.altair_chart(income_chart(run, episodes), width='stretch')
     st.caption('**金色長條**：那個月實際領到的生活費（右軸為總資產，兩者刻度不同）。'
                '**紫色長條**：每年執行撥款的那個月 —— 在那一天從成長池撥出、'
@@ -519,7 +606,8 @@ def _render_backtest(principal, shape, transfer_rate):
     # principal, only the rate different -- that is the whole question being asked.
     if abs(transfer_rate - TRANSFER_RATE) > 1e-9:
         try:
-            baseline = backtest(growth_prices, buffer_prices, principal, share, TRANSFER_RATE)
+            baseline = backtest(growth_prices, buffer_prices, principal, share,
+                                TRANSFER_RATE, growth_weights=growth_weights)
         except ValueError:
             baseline = None
         if baseline is not None:
@@ -557,7 +645,7 @@ def _render_backtest(principal, shape, transfer_rate):
                '緩衝池的用處正是讓那個運氣沒那麼要緊，但它不會讓運氣消失。')
     st.caption(f'**這是一段 {years:.1f} 年的歷史，不是長期驗證。** '
                '期間只夠涵蓋 2020 年的急跌與 2022 年的股債同跌，沒有一次完整的長空頭。'
-               f'期間受 {buffer_symbol} 的上市日限制（{growth_symbol} 本身有更長的歷史）。'
+               f'期間受 {buffer_symbol} 的上市日限制（成長池本身有更長的歷史）。'
                '未計稅、費用與交易成本。')
 
 
@@ -568,20 +656,22 @@ def _render_comparison(principal, shape, transfer_rate):
     The point of putting them in one table is that the column which wins on income is the
     same column that loses on drawdown, and that only shows when they are next to each other.
     """
-    prices, unavailable = {}, []
+    pools, unavailable = {}, []
     today = datetime.now(ZoneInfo('Asia/Taipei')).date()
     for name in BACKTEST_PRESETS:
         try:
-            prices[name] = backtest_prices(today, name)
+            growth, buffer = backtest_prices(today, name)
         except Exception:
             unavailable.append(name)
+            continue
+        pools[name] = (growth, buffer, pool_split(name)[0])
     share = growth_share(shape)
-    frame, window = compare_presets(prices, principal, share, transfer_rate)
+    frame, window = compare_presets(pools, principal, share, transfer_rate)
     if len(frame) < 2:
         return
     # Fetched but dropped counts as left out too -- 退休5 arrives fine and is then
     # too short to run, which is the case a reader is most likely to ask about.
-    left_out = unavailable + [n for n in prices if n not in frame.index]
+    left_out = unavailable + [n for n in pools if n not in frame.index]
 
     st.markdown('#### 並排比較')
     columns = list(frame.index)

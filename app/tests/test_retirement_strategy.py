@@ -9,7 +9,8 @@ from retirement_strategy import (BACKTEST_DEFAULT, BACKTEST_NOTES, BACKTEST_PRES
                                  yearly_income, EPISODE_NAMES, drawdown_episodes,
                                  worst_fall_without_the_currency, INCOME_COLOUR,
                                  TRANSFER_COLOUR, ORDINARY_MONTH, TRANSFER_MONTH,
-                                 compare_presets, shared_window)
+                                 compare_presets, shared_window, BUFFER_SYMBOL,
+                                 growth_pool, pool_label, pool_split)
 
 
 def test_the_original_ratio_pays_out_exactly_what_it_moved_in():
@@ -170,9 +171,12 @@ def test_the_backtest_holdings_are_read_off_the_preset():
     for preset in BACKTEST_PRESETS:
         growth, buffer = backtest_holdings(preset)
         weights = PRESETS[preset]['weights']
-        assert weights[growth] > weights[buffer], preset
-        assert set([growth, buffer]) == set(weights), preset
+        assert set(growth) | {buffer} == set(weights), preset
+        assert buffer not in growth, preset
+        # Heaviest first, so a label built from this reads in the order a reader expects.
+        assert list(growth) == sorted(growth, key=lambda s: -weights[s]), preset
     assert backtest_holdings() == backtest_holdings(BACKTEST_DEFAULT)
+    assert backtest_holdings('退休8')[0] == ('0050.TW', '00662.TW')
 
 
 def test_the_two_readings_keep_their_own_scales():
@@ -329,21 +333,25 @@ def test_a_history_with_no_january_at_all_is_still_refused():
         backtest(flat, flat, 3000 * 10000, 0.9)
 
 
-def test_all_three_backtest_presets_are_the_same_rule_in_different_clothes():
-    """退休6 and 退休7 exist to be 退休5 over a period long enough to look at. That only works
-    if they differ from it in the growth pool and in nothing else -- same ratio, same buffer,
-    same principal. Sharing the buffer is also what puts 6 and 7 on one window."""
-    shapes = {name: PRESETS[name] for name in BACKTEST_PRESETS}
-    buffers, ratios, amounts = set(), set(), set()
-    for name, config in shapes.items():
-        growth, buffer = backtest_holdings(name)
-        assert config['weights'][growth] == 90.0, name
-        assert config['weights'][buffer] == 10.0, name
-        buffers.add(buffer)
-        ratios.add(tuple(sorted(config['weights'].values())))
-        amounts.add(config['amount_wan'])
+def test_every_backtest_preset_is_the_same_rule_in_different_clothes():
+    """The others exist to be 退休5 over a period long enough to look at. That only works if
+    they differ from it in what the growth pool holds and in nothing else -- same 90:10, same
+    buffer, same principal. Sharing the buffer is also what puts them on one window.
+
+    The pool may hold more than one thing (退休8 holds two), so what has to match is the
+    total, not any single weight."""
+    buffers, splits, amounts = set(), set(), set()
+    for name in BACKTEST_PRESETS:
+        growth_weights, buffer_weight = pool_split(name)
+        growth_symbols, buffer_symbol = backtest_holdings(name)
+        assert sum(growth_weights.values()) == 90.0, name
+        assert buffer_weight == 10.0, name
+        assert set(growth_weights) == set(growth_symbols), name
+        buffers.add(buffer_symbol)
+        splits.add((sum(growth_weights.values()), buffer_weight))
+        amounts.add(PRESETS[name]['amount_wan'])
     assert len(buffers) == 1, f'緩衝池不同就落不到同一段期間：{buffers}'
-    assert len(ratios) == 1 and len(amounts) == 1
+    assert len(splits) == 1 and len(amounts) == 1
 
 
 def test_every_offered_preset_says_what_picking_it_means():
@@ -362,13 +370,18 @@ def test_the_taiwan_preset_is_flagged_for_what_the_window_cannot_show():
     assert '不是可以外推' in note or '外推' in note
 
 
-def test_the_share_follows_whichever_preset_is_being_run():
+def test_the_share_is_the_pool_total_not_its_largest_holding():
+    """退休8 splits its 90% across two holdings. Reading the largest would call that a 50%
+    growth pool and understate the income by nearly half."""
     for name in BACKTEST_PRESETS:
         weights = PRESETS[name]['weights']
+        assert growth_share(PRESET, name) == pytest.approx(0.9), name
         assert growth_share(PRESET, name) == pytest.approx(
-            max(weights.values()) / sum(weights.values()))
+            sum(w for s, w in weights.items() if s != BUFFER_SYMBOL) / sum(weights.values()))
+    assert growth_share(PRESET, '退休8') != pytest.approx(
+        max(PRESETS['退休8']['weights'].values()) / 100)
     # The original ratio is a property of the design, not of any preset's weights.
-    assert growth_share(ORIGINAL, '退休7') == pytest.approx(100 / 112)
+    assert growth_share(ORIGINAL, '退休8') == pytest.approx(100 / 112)
 
 
 def test_a_faster_growth_pool_leaves_a_thinner_buffer():
@@ -406,10 +419,10 @@ def test_a_preset_too_short_to_run_does_not_drag_the_others_down_with_it():
     """退休5 has a few weeks. Intersecting first would shrink the shared window to those
     weeks and every preset would then fail -- a comparison of nothing against nothing."""
     long_g, long_b = _series(85), _series(85, base=50, step=0.001)
-    prices = {'退休6': (long_g, long_b),
-              '退休7': (_series(85, step=0.008), long_b),
-              '退休5': (_series(3, start='2026-07-01'), long_b)}
-    frame, window = compare_presets(prices, 3000 * 10000, 0.9)
+    pools = {'退休6': (long_g, long_b, None),
+             '退休7': (_series(85, step=0.008), long_b, None),
+             '退休5': (_series(3, start='2026-07-01'), long_b, None)}
+    frame, window = compare_presets(pools, 3000 * 10000, 0.9)
     assert list(frame.index) == ['退休6', '退休7']
     assert window is not None and (window[1] - window[0]).days > 365 * 5
 
@@ -417,9 +430,9 @@ def test_a_preset_too_short_to_run_does_not_drag_the_others_down_with_it():
 def test_every_compared_preset_is_run_over_the_same_window():
     """Otherwise the one holding the youngest fund is rewarded for having less history."""
     shared_b = _series(85, base=50, step=0.001)
-    prices = {'退休6': (_series(85), shared_b),
-              '退休7': (_series(100, start='2017-01-01', step=0.008), shared_b)}
-    frame, window = compare_presets(prices, 3000 * 10000, 0.9)
+    pools = {'退休6': (_series(85), shared_b, None),
+             '退休7': (_series(100, start='2017-01-01', step=0.008), shared_b, None)}
+    frame, window = compare_presets(pools, 3000 * 10000, 0.9)
     assert len(frame) == 2
     # Same principal, same first transfer, so the first year has to be identical.
     assert frame.loc['退休6', '首年生活費'] == pytest.approx(frame.loc['退休7', '首年生活費'])
@@ -430,26 +443,105 @@ def test_the_window_reported_is_the_one_the_runs_cover():
     """The data overlap starts in November; the runs start at the first January. Quoting
     the former would name months nobody ran."""
     november = _series(40, start='2019-11-01')
-    prices = {'退休6': (november, _series(40, start='2019-11-01', base=50, step=0.001)),
-              '退休7': (_series(40, start='2019-11-01', step=0.008),
-                        _series(40, start='2019-11-01', base=50, step=0.001))}
-    frame, window = compare_presets(prices, 3000 * 10000, 0.9)
+    pools = {'退休6': (november, _series(40, start='2019-11-01', base=50, step=0.001), None),
+             '退休7': (_series(40, start='2019-11-01', step=0.008),
+                       _series(40, start='2019-11-01', base=50, step=0.001), None)}
+    frame, window = compare_presets(pools, 3000 * 10000, 0.9)
     assert len(frame) == 2
     assert window[0].month == 1 and window[0].year == 2020
 
 
 def test_nothing_to_compare_returns_nothing_rather_than_one_lonely_column():
     short = _series(3, start='2026-07-01')
-    frame, window = compare_presets({'退休5': (short, short)}, 3000 * 10000, 0.9)
+    frame, window = compare_presets({'退休5': (short, short, None)}, 3000 * 10000, 0.9)
     assert frame.empty and window is None
+
+
+def test_a_pool_of_two_is_compared_on_the_same_terms_as_a_pool_of_one():
+    """退休8 holds two. The table has to be able to put it beside the single-holding ones,
+    and its cell has to say what it holds rather than name one of them."""
+    shared_b = _series(85, base=50, step=0.001)
+    two = pd.concat({'0050.TW': _series(85, step=0.006),
+                     '00662.TW': _series(85, step=0.003)}, axis=1)
+    pools = {'退休7': (_series(85, step=0.006), shared_b, None),
+             '退休8': (two, shared_b, {'0050.TW': 50.0, '00662.TW': 40.0})}
+    frame, window = compare_presets(pools, 3000 * 10000, 0.9)
+    assert list(frame.index) == ['退休7', '退休8']
+    assert frame.loc['退休8', '成長池'] == '0050 50%＋00662 40%'
+    # The same principal and the same 90:10, so the opening year cannot differ.
+    assert frame.loc['退休7', '首年生活費'] == pytest.approx(frame.loc['退休8', '首年生活費'])
+    # A pool part of which grows more slowly ends up behind the one that is all of the fast one.
+    assert frame.loc['退休8', '期末總資產'] < frame.loc['退休7', '期末總資產']
 
 
 def test_a_faster_growth_pool_reads_across_the_row_as_a_trade_not_a_win():
     """The column that wins on income is the column that loses on drawdown. If that ever
     stops being true the table is no longer showing a trade-off and the caption lies."""
     shared_b = _series(85, base=50, step=0.001)
-    prices = {'退休6': (_series(85, step=0.003), shared_b),
-              '退休7': (_series(85, step=0.010), shared_b)}
-    frame, _ = compare_presets(prices, 3000 * 10000, 0.9)
+    pools = {'退休6': (_series(85, step=0.003), shared_b, None),
+             '退休7': (_series(85, step=0.010), shared_b, None)}
+    frame, _ = compare_presets(pools, 3000 * 10000, 0.9)
     assert frame.loc['退休7', '期末總資產'] > frame.loc['退休6', '期末總資產']
     assert frame.loc['退休7', '期末緩衝池佔比'] < frame.loc['退休6', '期末緩衝池佔比']
+
+
+def test_taking_four_percent_from_each_is_four_percent_of_the_pool():
+    """退休8's rule is "4% out of each holding". That is the whole reason a pool of two can
+    run through a rule written for one: with the same rate for every holding the totals are
+    identical and the split between them is untouched. If this stopped being true the two
+    would have to be tracked separately."""
+    values = {'a': 500.0, 'b': 400.0}
+    each = {k: v * 0.04 for k, v in values.items()}
+    assert sum(each.values()) == pytest.approx(sum(values.values()) * 0.04)
+    after = {k: values[k] - each[k] for k in values}
+    assert after['a'] / sum(after.values()) == pytest.approx(values['a'] / sum(values.values()))
+
+
+def test_a_pool_of_one_behaves_exactly_as_it_did_before():
+    """The multi-holding path must not move the single-holding answer by a cent."""
+    growth, buffer = _flat(months=85, growth_step=0.004)
+    as_series = backtest(growth, buffer, 3000 * 10000, 0.9)
+    as_frame = backtest(growth.to_frame('only'), buffer, 3000 * 10000, 0.9,
+                        growth_weights={'only': 90.0})
+    assert as_frame['總資產'].tolist() == pytest.approx(as_series['總資產'].tolist())
+    assert as_frame['當月生活費'].tolist() == pytest.approx(as_series['當月生活費'].tolist())
+
+
+def test_the_pool_is_bought_at_its_opening_weights_on_the_day_the_run_opens():
+    """The weights are opening weights. Normalising at the first row of data instead would
+    start the pool at proportions the market had already moved away from."""
+    index = pd.date_range('2019-11-01', periods=40, freq='ME')
+    fast = pd.Series([100 * 1.05 ** i for i in range(40)], index=index)
+    slow = pd.Series([100.0] * 40, index=index)
+    frame = pd.concat({'fast': fast, 'slow': slow}, axis=1)
+    weights = {'fast': 50.0, 'slow': 40.0}
+    run_start = pd.Timestamp('2020-01-31')
+    pool = growth_pool(frame, weights, since=run_start)
+    assert pool.index[0] == run_start
+    assert pool.iloc[0] == pytest.approx(1.0), '第一天必須是 1.0，比重才是那天的比重'
+    # One step later: the fast half moved 5%, the slow half nothing.
+    expected = (50 / 90) * 1.05 + (40 / 90) * 1.0
+    assert pool.iloc[1] == pytest.approx(expected)
+
+
+def test_a_pool_whose_weights_do_not_cover_its_holdings_is_refused():
+    """Silently treating a missing weight as zero would drop a holding from the pool."""
+    frame = pd.concat({'a': _series(20), 'b': _series(20)}, axis=1)
+    with pytest.raises(ValueError):
+        growth_pool(frame, {'a': 50.0})
+
+
+def test_the_pool_label_says_what_it_holds():
+    assert pool_label(None, {'0050.TW': 50.0, '00662.TW': 40.0}) == '0050 50%＋00662 40%'
+    assert pool_label(None, {'VT': 90.0}) == 'VT 90%'
+    # Heaviest first, whatever order the dict happens to be in.
+    assert pool_label(None, {'00662.TW': 40.0, '0050.TW': 50.0}) == '0050 50%＋00662 40%'
+
+
+def test_the_buffer_is_named_not_guessed_from_the_weights():
+    """退休8 holds two growth funds at 50 and 40. "Smallest weight is the buffer" would have
+    been right for the first three presets and wrong the moment a pool held more than one."""
+    growth, buffer_weight = pool_split('退休8')
+    assert BUFFER_SYMBOL not in growth
+    assert buffer_weight == 10.0
+    assert set(growth) == {'0050.TW', '00662.TW'}

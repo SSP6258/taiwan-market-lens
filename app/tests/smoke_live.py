@@ -91,11 +91,11 @@ facts = allocation_facts(segment, weights, portfolio, volatility, dd, "等權重
 payload = build_payload(lines, correlation_pairs(corr, str), "還原價格", daily, segment, weights, facts)
 check("payload 可建且含集中度", "有效持股檔數" in payload and len(payload) > 500)
 
-section("8. 配置比較：全部八個預設")
+section("8. 配置比較：全部九個預設")
 from strategies import allocation_table, configuration_paths, binding_holding
 from allocation import PRESETS
 table_all = allocation_table()
-check("預設配置共 8 個", len(table_all) == 8, "、".join(table_all))
+check("預設配置共 9 個", len(table_all) == 9, "、".join(table_all))
 check("每個配置合計 100%", all(abs(sum(w.values) * 100 - 100) < 0.2 for w in table_all.values()))
 all_symbols = sorted({s for w in table_all.values() for s in w.index})
 hist2, fail2, _, notes2 = load_frame(all_symbols, YEAR_AGO, TODAY, "Adj Close")
@@ -104,7 +104,7 @@ prices2 = pd.concat(hist2, axis=1)
 paths = configuration_paths(prices2, table_all)
 aligned2, _, _, stats2 = compare_prices(paths)
 bind = binding_holding(prices2, table_all)
-check("八個配置可同時比較", len(aligned2) >= 2,
+check("九個配置可同時比較", len(aligned2) >= 2,
       f"{aligned2.index[0]:%Y-%m-%d} → {aligned2.index[-1]:%Y-%m-%d}（{len(aligned2)} 天）")
 print(f"    卡住起點：{bind[0]} 自 {bind[1]:%Y-%m-%d}　含有它的配置：{bind[2]}")
 rest = {k: v for k, v in table_all.items() if k != "退休5"}

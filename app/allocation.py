@@ -22,6 +22,11 @@ PRESETS = {
     # sharing the buffer, lands on the same window as 退休6 -- the two differ in one
     # holding and nothing else, which is the only way the comparison means anything.
     '退休7': {'weights': {'0050.TW': 90.0, '00865B.TW': 10.0}, 'amount_wan': 3000.0},
+    # The first of these whose growth pool is more than one holding. 4% comes out of
+    # each of them every year, which is the same total as 4% of the pool and leaves the
+    # split between them exactly where the market put it -- nothing rebalances it.
+    '退休8': {'weights': {'0050.TW': 50.0, '00662.TW': 40.0, '00865B.TW': 10.0},
+              'amount_wan': 3000.0},
 }
 
 
