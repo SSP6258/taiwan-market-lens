@@ -29,6 +29,12 @@ PRESETS = {
               'amount_wan': 3000.0},
 }
 
+# The presets that are the buffer-pool rule rather than a basket held to its opening
+# weights. The 緩衝池退休法 page offers exactly this set to backtest, so it reads the
+# list from here instead of keeping a second copy -- the two drifting apart would mean
+# the sidebar marks one thing and the page runs another.
+BUFFER_PRESETS = ('退休5', '退休6', '退休7', '退休8')
+
 
 def apply_preset():
     config = PRESETS[st.session_state.portfolio_preset]
@@ -46,14 +52,22 @@ def apply_preset():
     st.session_state.pop('add_notice', None)
 
 
+def preset_label(name):
+    """The dropdown line: the one applied on arrival, the buffer-pool rule, the sum."""
+    marks = ['預設'] if name == '衝刺' else []
+    if name in BUFFER_PRESETS:
+        marks.append('緩衝池')
+    marks.append(f"{PRESETS[name]['amount_wan']:,.0f} 萬")
+    return f"{name}（{'・'.join(marks)}）"
+
+
 def preset_picker():
     if 'portfolio_presets_initialized' not in st.session_state:
         st.session_state.portfolio_preset = '衝刺'
         apply_preset()
         st.session_state.portfolio_presets_initialized = True
     st.selectbox('預設配置', list(PRESETS), key='portfolio_preset',
-                 format_func=lambda name: f"{name}（{'預設・' if name == '衝刺' else ''}{PRESETS[name]['amount_wan']:,.0f} 萬）",
-                 on_change=apply_preset)
+                 format_func=preset_label, on_change=apply_preset)
     st.button('重新套用此配置', key='reapply_preset', on_click=apply_preset)
 
 

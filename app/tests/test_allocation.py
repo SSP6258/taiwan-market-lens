@@ -132,3 +132,35 @@ st.number_input('金額', key='investment_amount_wan')
     assert not app.exception
     assert app.session_state.chosen_named_symbols == list(seven['weights'])
     assert app.session_state.applied_weights == pytest.approx([.9, .1])
+
+
+def test_the_dropdown_says_which_presets_are_the_buffer_pool_rule():
+    # The mark is the only thing on that line that tells a reader the preset follows a
+    # withdrawal rule rather than being a basket to hold, so it has to be on all four of
+    # them and on none of the rest.
+    for name in allocation.BUFFER_PRESETS:
+        assert '緩衝池' in allocation.preset_label(name), name
+    for name in allocation.PRESETS:
+        if name not in allocation.BUFFER_PRESETS:
+            assert '緩衝池' not in allocation.preset_label(name), name
+
+
+def test_marking_a_preset_did_not_cost_the_dropdown_what_it_already_said():
+    # 衝刺 is the one applied on arrival and every preset carries its sum; adding a third
+    # mark must not have pushed either of them off the line.
+    assert allocation.preset_label('衝刺') == '衝刺（預設・1,000 萬）'
+    assert allocation.preset_label('退休1') == '退休1（3,000 萬）'
+    assert allocation.preset_label('退休8') == '退休8（緩衝池・3,000 萬）'
+
+
+def test_the_backtest_runs_exactly_the_presets_the_sidebar_marks():
+    # Two lists would let the sidebar mark one set and the 緩衝池退休法 page run another,
+    # and nothing on either screen would show the disagreement.
+    from retirement_strategy import BACKTEST_NOTES, BACKTEST_PRESETS, BUFFER_SYMBOL
+    assert BACKTEST_PRESETS == allocation.BUFFER_PRESETS
+    for name in allocation.BUFFER_PRESETS:
+        assert name in allocation.PRESETS, name
+        # Marked as this rule but not actually holding the buffer would mean the page
+        # offers a preset it cannot split into two pools.
+        assert BUFFER_SYMBOL in allocation.PRESETS[name]['weights'], name
+        assert name in BACKTEST_NOTES, name

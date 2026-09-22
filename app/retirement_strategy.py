@@ -13,7 +13,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from allocation import PRESETS
+from allocation import BUFFER_PRESETS, PRESETS
 from ui import wan
 
 # The withdrawal rate stays a constant: a quarter is what spreads one year's market over
@@ -41,11 +41,13 @@ POSTER = Path(__file__).resolve().parent.parent / 'analysis' / 'retirement5-orig
 ORIGINAL = '原始設計 100：12'
 PRESET = 'APP 預設（退休5／退休6）'
 
-# The three presets that are this rule, offered together because the one a reader would
-# actually hold is the one with no history: 009826 listed in July 2026. 退休6 and 退休7
+# Every preset that is this rule gets offered here, including the one a reader would
+# actually hold and that has no history to run: 009826 listed in July 2026. The others
 # differ from it, and from each other, in the growth pool and nothing else -- and they
 # share the buffer, so they land on the same window and can be read against each other.
-BACKTEST_PRESETS = ('退休5', '退休6', '退休7', '退休8')
+# The set is the sidebar's, so the mark on the dropdown and the choices here cannot
+# come apart.
+BACKTEST_PRESETS = BUFFER_PRESETS
 BACKTEST_DEFAULT = '退休6'
 BACKTEST_FROM = date(2008, 1, 1)
 
