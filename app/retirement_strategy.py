@@ -594,6 +594,19 @@ def _render_backtest(principal, shape, transfer_rate):
                  '同期成長池最大月底回撤 '
                  f'{(run["成長池"] / run["成長池"].cummax() - 1).min():.1%}')
 
+    # Two pages report a total for the same preset and they differ by a lot. This one has
+    # been paying out for the whole run; 投資報酬 never takes anything out, and its window
+    # follows the sidebar rather than the data. Neither figure is wrong and nothing else on
+    # either page says so, so the reconciliation goes next to the number people compare.
+    spent = float(run['當月生活費'].sum())
+    st.caption(f'**期末總資產是領走生活費之後的餘額。** 這段期間累計領了 '
+               f'**{wan(spent) or f"{spent:,.0f} 元"}**，連同領走的部分合計 '
+               f'**{wan(run["總資產"].iloc[-1] + spent)}**。'
+               f'「投資報酬」分頁算的是買進持有、一毛不提，期間又跟著側邊欄的「比較區間」走'
+               f'（本頁固定 {run.index[0]:%Y/%m} — {run.index[-1]:%Y/%m}），'
+               '所以兩頁的總金額不能直接對照 —— '
+               '差額除了領走的錢，還有每年撥進緩衝池的部分不再參與成長池報酬的拖累。')
+
     # The "為什麼不需要再平衡" section says the buffer settles near a tenth. It does -- at the
     # return gap that algebra was solved for. A faster growth pool dilutes it, and that is
     # measurable right here, so it gets said next to the number rather than left to contradict

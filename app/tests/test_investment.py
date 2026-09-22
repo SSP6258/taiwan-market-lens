@@ -89,3 +89,54 @@ def test_a_large_distribution_without_a_split_is_published_as_it_stands():
     h = pd.DataFrame({'Close': [16.0] * 4, 'Dividends': [0, 1.55, 0, 0],
                       'Stock Splits': [0.0] * 4}, index=index)
     assert repair_distribution_units(h)['Dividends'].tolist() == [0, 1.55, 0, 0]
+
+
+def test_both_edges_of_a_chart_carry_numbers():
+    # Measured while building this: a right-hand `orient` on its own MOVES the numbers.
+    # Layered charts merge axes that share a scale, so the two collapse back into one
+    # and the chart is left with numbers down the right only -- no exception, nothing
+    # missing from the page, just a chart that quietly lost half of what it had.
+    import altair as alt
+    from investment import with_right_edge_numbers
+    frame = pd.DataFrame({'v': [.25, .75]})
+    scale = alt.Scale(domain=[0, 1])
+    bars = alt.Chart(frame).mark_bar().encode(
+        y=alt.Y('v:Q', title='占比', scale=scale, axis=alt.Axis(format='.0%')))
+    spec = with_right_edge_numbers(bars, frame, alt.Y(
+        'v:Q', title=None, scale=scale, axis=alt.Axis(format='.0%', orient='right'))).to_dict()
+    assert spec['resolve']['axis']['y'] == 'independent'
+    drawn = [l['encoding']['y'] for l in spec['layer'] if l['encoding']['y'].get('axis') is not None]
+    assert sorted(y['axis'].get('orient', 'left') for y in drawn) == ['left', 'right']
+    # Both sides must read off one scale, or the two edges of one chart disagree.
+    assert {tuple(y['scale']['domain']) for y in drawn} == {(0, 1)}
+
+
+def test_the_added_layer_draws_nothing_of_its_own():
+    # It exists to carry an axis. A visible rule on every row would stripe the chart.
+    import altair as alt
+    from investment import with_right_edge_numbers
+    frame = pd.DataFrame({'v': [1., 2.]})
+    base = alt.Chart(frame).mark_line().encode(y=alt.Y('v:Q'))
+    added = with_right_edge_numbers(base, frame, alt.Y('v:Q', axis=alt.Axis(orient='right')))
+    assert added.to_dict()['layer'][-1]['mark']['opacity'] == 0
+
+
+def test_the_investment_page_still_draws_both_of_its_charts():
+    # 第六十次: a chart line got eaten by a splice and the page rendered anyway -- cards,
+    # captions and no exception, just no chart. Counting them is the only way to see it.
+    import json
+    script = 'import pandas as pd, numpy as np\n' \
+             'from investment import render_investment\n' \
+             "idx = pd.bdate_range('2023-01-02', periods=300)\n" \
+             'rng = np.random.default_rng(7)\n' \
+             "p = pd.DataFrame(100*np.cumprod(1+rng.normal(.0006,.011,(len(idx),2)),axis=0), index=idx, columns=['A','B'])\n" \
+             "render_investment(p, pd.Series({'A':.6,'B':.4}), 1e7, str, '還原價格')\n"
+    with patch('investment.load_distributions') as fetch:
+        app = AppTest.from_string(script).run(timeout=30)
+        assert not app.exception
+        charts = list(app.get('vega_lite_chart'))
+        assert len(charts) == 2, '資產價值與占比追蹤兩張圖都要在'
+        for chart in charts:
+            spec = chart.spec if isinstance(chart.spec, dict) else json.loads(chart.spec)
+            assert spec['resolve']['axis']['y'] == 'independent'
+        fetch.assert_not_called()

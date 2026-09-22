@@ -526,3 +526,27 @@ def test_the_retirement_tab_draws_the_backtest_and_offers_the_rate():
         labels = [e.label for e in app.expander]
         for section in ["一年只做哪兩個動作", "每個數字為什麼是那個數字", "為什麼不需要再平衡"]:
             assert section in labels, section
+
+
+def test_the_retirement_total_says_it_is_net_of_what_was_taken_out():
+    """The same preset reports a far larger total on 投資報酬, which buys, holds and never
+    pays anything out. Measured on 退休8 over the same window: 1.34 億 there against 1.05 億
+    here. Without this line the two pages simply disagree and neither says why."""
+    import re
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app().run(timeout=60)
+        app.session_state["analysis_tabs"] = "緩衝池退休法"
+        app.run(timeout=60)
+        assert not app.exception
+        said = [c.value for c in app.caption if "期末總資產是領走生活費之後的餘額" in c.value]
+        assert said, "the reconciliation caption never rendered"
+        note = said[0]
+        assert "投資報酬" in note and "買進持有" in note, "it has to name the page it reconciles with"
+        # The two amounts have to be worked out from the run, not written down: the sum it
+        # quotes must be the total on the card plus what the run paid out.
+        figures = [float(f.replace(",", "")) for f in re.findall(r"([\d,]+(?:\.\d+)?) 萬", note)]
+        assert len(figures) >= 2, note
+        drawn, combined = figures[0], figures[1]
+        total = float({m.label: m.value for m in app.metric}["期末總資產"].replace(" 萬", "").replace(",", ""))
+        assert combined == pytest.approx(total + drawn, abs=2), (total, drawn, combined)
+        assert drawn > 0, "a run that paid out nothing would make the whole line pointless"

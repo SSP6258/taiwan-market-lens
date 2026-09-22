@@ -112,6 +112,29 @@ def monthly_weights(segment, weights):
     return pd.DataFrame(rows)
 
 
+def with_right_edge_numbers(chart, data, y):
+    """Add a second copy of the y axis on the right of an existing chart.
+
+    These charts run the width of the page and the newest month sits at the right
+    edge, which is the end a reader is usually at and the furthest from the only
+    numbers there were.
+
+    Two things are needed and neither is obvious. The axis has to be a layer of its
+    own -- Vega-Lite gives a scale one axis, so `orient` on the existing one moves the
+    numbers rather than copying them -- and that layer carries a mark that draws
+    nothing. Then the layers have to resolve their axes independently: layered charts
+    merge axes that share a scale by default, which silently collapses the two back
+    into one and leaves the chart with numbers on the right only. Measured: without
+    the resolve, the left axis disappears.
+
+    Taking the whole chart rather than returning a loose layer is deliberate. The
+    resolve belongs with the layer that makes it necessary, and callers cannot forget
+    it.
+    """
+    mirror = alt.Chart(data).mark_rule(opacity=0).encode(y=y)
+    return (chart + mirror).resolve_axis(y='independent')
+
+
 def render_weight_tracking(segment, weights, label, basis):
     data = monthly_weights(segment, weights)
     data['標的'] = data['代碼'].map(label)
@@ -123,11 +146,15 @@ def render_weight_tracking(segment, weights, label, basis):
         st.caption(f'{segment.index[0]:%Y/%m/%d} — {segment.index[-1]:%Y/%m/%d} · {basis} · 還原價格模式為含配息調整的價值占比，非實際持股市值占比。')
         tooltip = ['日期:N','標的:N',alt.Tooltip('占比:Q',format='.1%')]
         base = alt.Chart(data).encode(x=alt.X('月份:N',sort=sorted(data['月份'].unique()),title=None,axis=alt.Axis(labelAngle=-45)))
+        share_scale = alt.Scale(domain=[0,1])
         bars = base.mark_bar().encode(
-            y=alt.Y('頂部:Q',title='組合占比',scale=alt.Scale(domain=[0,1]),axis=alt.Axis(format='.0%')),
+            y=alt.Y('頂部:Q',title='組合占比',scale=share_scale,axis=alt.Axis(format='.0%')),
             y2='底部:Q', color=alt.Color('標的:N',scale=alt.Scale(domain=[label(s) for s in weights.index],range=palette[:len(weights)]),legend=alt.Legend(orient='bottom',columns=1,labelLimit=350)),tooltip=tooltip)
-        numbers = base.transform_filter('datum.端點 && datum.占比 > 0').mark_text(color='#101828',fontWeight='bold',fontSize=11).encode(y=alt.Y('中央:Q',title='組合占比'),text='數字:N',tooltip=tooltip)
-        st.altair_chart((bars + numbers).properties(height=360),width='stretch')
+        numbers = base.transform_filter('datum.端點 && datum.占比 > 0').mark_text(color='#101828',fontWeight='bold',fontSize=11).encode(y=alt.Y('中央:Q',title='組合占比',axis=None),text='數字:N',tooltip=tooltip)
+        shares = with_right_edge_numbers(bars + numbers, data,
+                                         alt.Y('頂部:Q',title=None,scale=share_scale,
+                                               axis=alt.Axis(format='.0%',orient='right')))
+        st.altair_chart(shares.properties(height=360),width='stretch')
         with st.expander('查看每月占比數字（含小額配置）'):
             grid = data.pivot(index='月份',columns='標的',values='占比')
             st.dataframe(grid.style.format('{:.1%}'),width='stretch')
@@ -162,7 +189,20 @@ def render_investment(prices, weights, amount, label, basis):
             for card,title,v in zip(cards[1:],['初始投入','期末試算價值','區間損益'],[amount,value.iloc[-1],value.iloc[-1]-amount]):
                 money_metric(card,title,v, border=True)
         st.html('<style>.st-key-investment_summary [data-testid="stColumn"]{min-width:250px!important}.st-key-investment_summary [data-testid="stMetricValue"]{font-size:clamp(20px,2vw,30px)}</style>')
-        st.line_chart(value.rename('資產價值（元）'),color='#35CDBF')
+        # Rebuilt as Altair rather than st.line_chart: the built-in draws one axis and
+        # offers no way to add the second, and this is the chart the page is about.
+        asset = pd.DataFrame({'日期': value.index, '資產價值': value.values})
+        asset_scale = alt.Scale(zero=False, nice=True)
+        asset_line = alt.Chart(asset).mark_line(color='#35CDBF').encode(
+            x=alt.X('日期:T', title=None),
+            y=alt.Y('資產價值:Q', title='資產價值（元）', scale=asset_scale,
+                    axis=alt.Axis(format=',.0f')),
+            tooltip=[alt.Tooltip('日期:T', format='%Y/%m/%d'),
+                     alt.Tooltip('資產價值:Q', format=',.0f')])
+        asset_chart = with_right_edge_numbers(asset_line, asset,
+                                              alt.Y('資產價值:Q', title=None, scale=asset_scale,
+                                                    axis=alt.Axis(format=',.0f', orient='right')))
+        st.altair_chart(asset_chart.properties(height=360), width='stretch')
         gap = float((value.cummax()-value).max())
         reading = wan(gap)
         st.caption(f'最大高點至低點金額差：NT$ {gap:,.0f}'
@@ -214,11 +254,15 @@ def render_investment(prices, weights, amount, label, basis):
             tooltip=['月份:N','標的:N',alt.Tooltip('金額:Q',format=',.0f'),alt.Tooltip('月合計:Q',format=',.0f')])
         labels_data = totals.rename('月合計').reset_index()
         labels_data['顯示'] = labels_data['月合計'].map(lambda v: f'{v/10000:.1f}萬')
+        income_scale = alt.Scale(domain=[0, max(float(totals.max())*1.18, 1)])
         labels_chart = alt.Chart(labels_data).mark_text(dy=-9, color='#F1F5F9', fontSize=12).encode(
             x=alt.X('月份:N', sort=sorted(totals.index), title=None),
-            y=alt.Y('月合計:Q', title='每月除息金額（元）', scale=alt.Scale(domain=[0, max(float(totals.max())*1.18, 1)])),
+            y=alt.Y('月合計:Q', title='每月除息金額（元）', scale=income_scale, axis=None),
             text='顯示:N', tooltip=['月份:N',alt.Tooltip('月合計:Q',format=',.0f')])
-        st.altair_chart((chart + labels_chart).properties(height=320), width='stretch')
+        income_chart = with_right_edge_numbers(chart + labels_chart, labels_data,
+                                               alt.Y('月合計:Q', title=None, scale=income_scale,
+                                                     axis=alt.Axis(format=',.0f', orient='right')))
+        st.altair_chart(income_chart.properties(height=320), width='stretch')
         with st.expander('每月各檔金額與合計'):
             grid=monthly.pivot(index='月份',columns='標的',values='金額')
             grid['合計']=totals
