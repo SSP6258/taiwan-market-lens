@@ -339,6 +339,33 @@ commit，之後誰都看不出那個 commit 做了什麼。第六十一次的處
 **只把要 commit 的檔案轉回 LF**（`data.replace(b'\r\n', b'\n')`），其餘留在工作區不碰。
 編輯 CRLF 檔案時也要記得保留 CRLF，否則會讓單一檔案變成混合行尾。
 
+**9. `git push` 會卡住不動，而且不是網路問題。**
+2026-09-22 在 Linux 開發機上撞到：`git push` **掛著、完全沒有輸出**，直到逾時被砍。
+很容易誤判成 GitHub 連不上，但**匿名讀取是通的**（`git ls-remote` 回得來、
+`curl https://github.com` 回 200），所以出網沒有被擋。
+
+真正的原因是認證管道。`remote` 原本是 **HTTPS**，於是 git 把要帳密這件事交給環境變數
+`GIT_ASKPASS` 指到的 **VS Code askpass**，它會在編輯器裡彈一個輸入框——
+**從終端機（或 agent）看不到也答不了那個框**，就一直等。
+VS Code 的 IPC 一旦斷線（`ide` MCP server 連不上 `ws://127.0.0.1:…` 就是徵兆），
+行為會從「無限等待」變成快速失敗：
+
+```
+fatal: could not read Username for 'https://github.com': No such device or address
+```
+
+**解法：這台機器本來就有可用的 SSH 金鑰**（`~/.ssh/id_ed25519_github`），
+只是 remote 設成 HTTPS 所以用不到。先驗身分再改：
+
+```bash
+ssh -T git@github.com          # 要印出 Hi SSP6258!
+git remote set-url origin git@github.com:SSP6258/taiwan-market-lens.git
+```
+
+**已於 2026-09-22 改成 SSH**，所以這個坑理論上不會再犯。
+但**換一台機器、或重新 clone，remote 又會是 HTTPS** —— 症狀會一模一樣地回來。
+判斷方式：`git ls-remote` 通、`git push` 卡住 → 是認證不是網路。
+
 ---
 
 ## Hugging Face 實測數據
@@ -3028,3 +3055,33 @@ deletions——**完全對稱，因為那裡面沒有任何內容改動**。
 所以這個 commit 裡只有真正的 54 行。要看真正的改動用 `git diff --ignore-cr-at-eol`。
 **下一個接手的人會再撞到這件事**，而且如果沒注意就 `git add -A`，
 會把一次全 repo 的行尾翻轉跟自己的改動綁在一起，之後誰都看不出那個 commit 做了什麼。
+
+### 2026-09-22（第六十二次）—— 推送卡住的不是網路是認證，remote 改走 SSH
+`session: app-fire-08 [0ddd18]`
+
+第六十一次做完要推上 GitHub，`git push` **掛著不動、一個字都沒有輸出**，逾時被砍。
+這一則記的是排查過程，因為**下一個接手的人換台機器就會再撞到**。
+
+**先排除的是網路，而且排除得很乾脆**：`git ls-remote origin` 回得來、
+`curl https://github.com` 回 **HTTP 200**，耗時 0.08 秒。出網沒有被擋——
+這一點值得先確認，因為第五十五次那個「雲端沙箱擋掉 Yahoo」的前例會讓人先往網路想。
+
+**真正的原因是 `remote` 是 HTTPS。** git 於是把要帳密交給 `GIT_ASKPASS`，
+而它指向 **VS Code 的 askpass**，會在編輯器裡彈輸入框——**agent 看不到也答不了**，就一直等。
+第二次重試時行為變了：直接快速失敗、印出
+`fatal: could not read Username for 'https://github.com': No such device or address`。
+**兩次症狀不同但根因相同**，差別在 VS Code 的 IPC 那時已經斷線
+（同一個 session 的 `ide` MCP server 也連不上，是同一件事的兩個徵兆）。
+
+**解法是這台機器本來就有的東西**：`~/.ssh/id_ed25519_github`。
+`ssh -T git@github.com` 回 `Hi SSP6258!`，身分正是 repo 擁有者，
+只是 remote 設成 HTTPS 所以那把金鑰一直沒被用到。先用完整 SSH 網址單推一次成功
+（`b239595..fd21da6`），**再**才 `git remote set-url` 永久改掉——
+順序刻意如此：先證明金鑰真的推得動，再動設定。
+
+**已寫成環境陷阱 9。** 關鍵的判斷句是：
+**`git ls-remote` 通、`git push` 卡住 → 是認證不是網路。**
+
+**沒有做的事**：沒有去找、產生或寫入任何 token。
+HTTPS 那條路要 PAT，而那是使用者的憑證，不該由 agent 代辦。
+SSH 金鑰是機器上既有的，只是把 remote 指過去而已。
