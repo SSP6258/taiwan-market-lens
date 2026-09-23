@@ -23,7 +23,8 @@ import sys
 # Leaves first: reloading a module leaves anything that imported it holding the old objects.
 _RELOAD_ORDER = ["ui", "securities", "market", "lightweight_chart", "correlation",
                  "allocation", "module_compat", "sharpe_analysis", "beta_analysis",
-                 "investment", "insights", "strategies", "retirement_strategy"]
+                 "investment", "insights", "strategies", "retirement_strategy",
+                 "emergency"]
 
 
 def _replaced_since_import(module):
@@ -77,7 +78,7 @@ st.write("同一起點，看見不同走勢。比較股票與 ETF 的歷史報�
 # Reserved above the tab bar so the period shows once, on every tab, and is filled
 # after the data is loaded below.
 period_slot = st.empty()
-comparison_tab, strategy_tab, risk_tab, investment_tab, ai_tab, retirement_tab, about_tab = st.tabs(["行情比較", "配置比較", "風險分析", "投資報酬", "AI 深度解讀", "緩衝池退休法", "關於與使用說明"], on_change="rerun", key="analysis_tabs")
+comparison_tab, strategy_tab, risk_tab, investment_tab, ai_tab, retirement_tab, emergency_tab, about_tab = st.tabs(["行情比較", "配置比較", "風險分析", "投資報酬", "AI 深度解讀", "緩衝池退休法", "緊急支出", "關於與使用說明"], on_change="rerun", key="analysis_tabs")
 with about_tab:
     st.markdown(Path(__file__).with_name("about.md").read_text(encoding="utf-8"))
     st.subheader("資料處理流程")
@@ -395,6 +396,13 @@ if retirement_tab.open:
         # whatever happens to be selected on the other tabs.
         from retirement_strategy import render_strategy
         render_strategy()
+
+if emergency_tab.open:
+    with emergency_tab:
+        # Same footing as the tab before it: the rule is explained against the presets,
+        # and nothing here reads the sidebar or fetches a price.
+        from emergency import render_emergency
+        render_emergency()
 
 if ai_tab.open:
     with ai_tab:

@@ -268,7 +268,7 @@ def test_risk_tabs_group_and_default_to_correlation():
     with patch("market.load_symbol", side_effect=fixture_history):
         app = new_app().run(timeout=30)
         assert [t.label for t in app.tabs] == [
-            "行情比較", "配置比較", "風險分析", "投資報酬", "AI 深度解讀", "緩衝池退休法", "關於與使用說明"]
+            "行情比較", "配置比較", "風險分析", "投資報酬", "AI 深度解讀", "緩衝池退休法", "緊急支出", "關於與使用說明"]
         app.session_state["analysis_tabs"] = "風險分析"
         app = app.run(timeout=30)
         assert not app.exception
@@ -550,3 +550,43 @@ def test_the_retirement_total_says_it_is_net_of_what_was_taken_out():
         total = float({m.label: m.value for m in app.metric}["期末總資產"].replace(" 萬", "").replace(",", ""))
         assert combined == pytest.approx(total + drawn, abs=2), (total, drawn, combined)
         assert drawn > 0, "a run that paid out nothing would make the whole line pointless"
+
+
+def test_the_emergency_tab_renders_all_of_its_sections():
+    """第六十次: a splice ate a chart line and the page rendered anyway. This tab is all
+    prose and tables, so the only way to know it arrived is to count what is on it."""
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app().run(timeout=60)
+        app.session_state["analysis_tabs"] = "緊急支出"
+        app.run(timeout=60)
+        assert not app.exception
+        headings = [m.value for m in app.markdown if m.value.startswith("### ")]
+        for section in ["從哪個池子拿", "三種做法", "LTV", "佔生活費的比例", "決策順序"]:
+            assert any(section in h for h in headings), (section, headings)
+        # The headline ratio is the reason the page exists; it must reach the screen.
+        assert any("緩衝池看起來最像緊急預備金" in w.value for w in app.warning)
+        # Both tables render. Counted by their columns, not their position: app.dataframe
+        # collects the whole app, and other tabs put tables on the page too.
+        columns = [set(d.value.columns) for d in app.dataframe]
+        assert any("起始 LTV" in c for c in columns), columns
+        assert any("年利率" in c for c in columns), columns
+
+
+def test_the_emergency_tab_costs_follow_the_rate_the_reader_moves():
+    """The 1-to-25 figures are the page's one assumption-free claim. Written down rather
+    than derived, they would keep saying 25 after the slider moved."""
+    with patch("market.load_symbol", side_effect=fixture_history):
+        app = new_app().run(timeout=60)
+        app.session_state["analysis_tabs"] = "緊急支出"
+        app.run(timeout=60)
+        before = [m.value for m in app.metric if "拿 100 萬" in m.label]
+        assert len(before) == 2, [m.label for m in app.metric]
+        # 第五十八次: a run() after set_value drops analysis_tabs back to the default, so
+        # the tab has to be re-selected or the next assertion reads an empty page.
+        pick(app, "slider", "每年從成長池撥出（%）").set_value(8.0)
+        app.session_state["analysis_tabs"] = "緊急支出"
+        app.run(timeout=60)
+        assert not app.exception
+        after = [m.value for m in app.metric if "拿 100 萬" in m.label]
+        assert after[0] != before[0], "撥出率加倍，成長池的代價就要跟著變"
+        assert after[1] == before[1], "領出率沒動，緩衝池的代價不該動"
