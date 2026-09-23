@@ -561,15 +561,18 @@ def test_the_emergency_tab_renders_all_of_its_sections():
         app.run(timeout=60)
         assert not app.exception
         headings = [m.value for m in app.markdown if m.value.startswith("### ")]
-        for section in ["從哪個池子拿", "三種做法", "LTV", "佔生活費的比例", "決策順序"]:
+        for section in ["四個錦囊", "別動錯池子"]:
             assert any(section in h for h in headings), (section, headings)
         # The headline ratio is the reason the page exists; it must reach the screen.
         assert any("緩衝池看起來最像緊急預備金" in w.value for w in app.warning)
-        # Both tables render. Counted by their columns, not their position: app.dataframe
-        # collects the whole app, and other tabs put tables on the page too.
+        # The detail lives in expanders now -- the page is meant to be scannable -- but it
+        # still has to be there. Counted by columns: app.dataframe collects the whole app.
         columns = [set(d.value.columns) for d in app.dataframe]
         assert any("起始 LTV" in c for c in columns), columns
         assert any("年利率" in c for c in columns), columns
+        labels = [e.label for e in app.expander]
+        for section in ["LTV 與利率", "正2", "數字從哪裡來"]:
+            assert any(section in lab for lab in labels), (section, labels)
 
 
 def test_the_emergency_tab_costs_follow_the_rate_the_reader_moves():
