@@ -554,7 +554,7 @@ def test_the_retirement_total_says_it_is_net_of_what_was_taken_out():
 
 def test_the_emergency_tab_renders_all_of_its_sections():
     """第六十次: a splice ate a chart line and the page rendered anyway. This tab is all
-    prose and tables, so the only way to know it arrived is to count what is on it."""
+    prose, so the only way to know it arrived is to look for what is on it."""
     with patch("market.load_symbol", side_effect=fixture_history):
         app = new_app().run(timeout=60)
         app.session_state["analysis_tabs"] = "緊急支出"
@@ -562,35 +562,23 @@ def test_the_emergency_tab_renders_all_of_its_sections():
         assert not app.exception
         headings = [m.value for m in app.markdown if m.value.startswith("### ")]
         # Not the numeral -- that is derived from PLAYBOOK and moves when one is added.
-        for section in ["錦囊，照這個順序試", "別動錯池子"]:
+        for section in ["先墊，再補", "錦囊，照這個順序試", "借錢時記得"]:
             assert any(section in h for h in headings), (section, headings)
-        # The headline ratio is the reason the page exists; it must reach the screen.
-        assert any("緩衝池看起來最像緊急預備金" in w.value for w in app.warning)
-        # The detail lives in expanders now -- the page is meant to be scannable -- but it
-        # still has to be there. Counted by columns: app.dataframe collects the whole app.
-        columns = [set(d.value.columns) for d in app.dataframe]
-        assert any("起始 LTV" in c for c in columns), columns
-        assert any("年利率" in c for c in columns), columns
+        # Why the refill matters, stated from the rule's own rates.
+        assert any("重設" in i.value and "25 萬" in i.value for i in app.info)
         labels = [e.label for e in app.expander]
-        for section in ["LTV 與利率", "正2", "數字從哪裡來"]:
+        for section in ["正2", "數字從哪裡來"]:
             assert any(section in lab for lab in labels), (section, labels)
 
 
-def test_the_emergency_tab_costs_follow_the_rate_the_reader_moves():
-    """The 1-to-25 figures are the page's one assumption-free claim. Written down rather
-    than derived, they would keep saying 25 after the slider moved."""
+def test_the_emergency_tab_is_a_method_page_not_a_calculator():
+    """Asked for on 2026-09-24: this page introduces the methods and computes nothing.
+    A control that crept back in would turn it into a second calculator beside the one
+    on 緩衝池退休法."""
     with patch("market.load_symbol", side_effect=fixture_history):
         app = new_app().run(timeout=60)
         app.session_state["analysis_tabs"] = "緊急支出"
         app.run(timeout=60)
-        before = [m.value for m in app.metric if "拿 100 萬" in m.label]
-        assert len(before) == 2, [m.label for m in app.metric]
-        # 第五十八次: a run() after set_value drops analysis_tabs back to the default, so
-        # the tab has to be re-selected or the next assertion reads an empty page.
-        pick(app, "slider", "每年從成長池撥出（%）").set_value(8.0)
-        app.session_state["analysis_tabs"] = "緊急支出"
-        app.run(timeout=60)
-        assert not app.exception
-        after = [m.value for m in app.metric if "拿 100 萬" in m.label]
-        assert after[0] != before[0], "撥出率加倍，成長池的代價就要跟著變"
-        assert after[1] == before[1], "領出率沒動，緩衝池的代價不該動"
+        widgets = [w for kind in ("number_input", "slider", "text_input", "selectbox", "radio")
+                   for w in getattr(app, kind) if str(w.key or "").startswith("emergency_")]
+        assert not widgets, [w.key for w in widgets]
