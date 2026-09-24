@@ -386,13 +386,17 @@ git remote set-url origin git@github.com:SSP6258/taiwan-market-lens.git
 
 ```bash
 apt-get install -y python3-pip python3-venv
-python3 -m venv <scratchpad>/lv
-<scratchpad>/lv/bin/python -m pip install -r requirements.txt pytest
+python3 -m venv /root/.cache/app-fire-venv
+/root/.cache/app-fire-venv/bin/python -m pip install -r requirements.txt pytest playwright
 ```
+
+**venv 要建在硬碟上（`/root/.cache/app-fire-venv`），不要建在 scratchpad。**
+scratchpad 在 `/tmp` 底下，這台的 `/tmp` 是 tmpfs：venv 約 676M 會佔掉記憶體（整台只有 3.8G），
+而且 session 換掉就不見。2026-09-24 就是這樣整個重建的（第六十九次）。
 
 裝完 `streamlit 1.62.0`／`altair 6.3.0`／`pandas 2.3.3`，與 `requirements.txt` 一致，
 **211 個測試全綠、耗時約 17 秒**。**專案的 `.venv/` 不要碰**，它是 Windows 的，
-另外開一個裝在 scratchpad 就好。
+另外開一個，建在上面那個硬碟路徑。
 
 **而且 Yahoo 是通的**（實測 `yf.download('0050.TW')` 回 22 列）——
 第五十五次那個「雲端沙箱擋掉 Yahoo」是**另一個環境**，不要套用到這裡。
@@ -3440,3 +3444,29 @@ LTV 表濃縮成一條經驗法則：**借款控制在總資產 15% 以內，跌
 但確認之前我沒有下結論。
 
 221 → 219 passed（刪 4 個試算測試、加 2 個）。截圖確認頁面沒有任何輸入框。
+
+### 2026-09-24（第六十九次）—— 測試環境改建在硬碟上 [app-fire-08 0ddd18]
+
+要截圖時發現環境陷阱 10 建的 venv 不見了：它原本在 scratchpad（`/tmp` 底下），
+這台的 `/tmp` 是 **tmpfs（2.0G，吃記憶體）**。使用者建議改建在硬碟上。
+
+- 新位置 `/root/.cache/app-fire-venv`，裝 `requirements.txt` + pytest + playwright，**佔 676M**
+- Playwright 的 chromium 原本就在 `/root/.cache/ms-playwright`（硬碟），不必重裝
+- 硬碟 48G 用了 18G；記憶體 3.8G，建完當下剩 996M 可用
+- **219 passed，20.5 秒**，與第六十八次相同
+
+環境陷阱 10 的指令與說明已改成這個路徑。程式碼沒有改動。
+
+### 2026-09-24（第七十次）—— 緊急支出分頁精簡版定稿；退休前必辦只有理財型房貸 [app-fire-08 0ddd18]
+
+**一、`app/emergency.py` 的精簡版。** 截圖時發現工作目錄裡有一份 06:04 的未 commit 改動
+（不是本 session 寫的），把整頁文字壓短：錦囊表欄名「為什麼排這裡」→「好處」；
+第一步改成「至少留下辦好錦囊那幾個月的生活費」；房貸代價補「額度定期審查，退休後可能被降或不續約」；
+正2 補「00685L 實測約 1.8 倍，曝險補不滿」；LTV 補上定義（借款 ÷ 擔保品市值，維持率是它的倒數），
+並改成「不超過被押部位的 15%」。使用者看過截圖後同意保留。**219 passed**，資料結構與測試未變。
+
+**二、退休前還要先辦什麼（討論，無程式改動）。** 我先列了一長串，逐項被使用者問倒：
+保險看年齡與健康、不看在職（是「越早越好」不是「退休前必辦」）；健保、勞保本來就是退休時才辦；
+信用卡額度在有 00865B 先墊的配置下幾乎用不到，且退休後可能被覆審調降；
+信貸使用者定位為備而不用、可望以股票庫存當財力證明；轉貸是有房貸才有的事；勞退自提是節稅不是應急。
+**結論（使用者的）：退休前必辦只有理財型房貸。** 頁面上的紅框本來就只講房貸，不需要改。
