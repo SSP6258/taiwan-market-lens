@@ -561,7 +561,8 @@ def test_the_emergency_tab_renders_all_of_its_sections():
         app.run(timeout=60)
         assert not app.exception
         headings = [m.value for m in app.markdown if m.value.startswith("### ")]
-        for section in ["四個錦囊", "別動錯池子"]:
+        # Not the numeral -- that is derived from PLAYBOOK and moves when one is added.
+        for section in ["錦囊，照這個順序試", "別動錯池子"]:
             assert any(section in h for h in headings), (section, headings)
         # The headline ratio is the reason the page exists; it must reach the screen.
         assert any("緩衝池看起來最像緊急預備金" in w.value for w in app.warning)
