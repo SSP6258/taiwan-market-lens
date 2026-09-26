@@ -152,10 +152,10 @@ def test_the_retirement_strategy_tab_renders_its_own_arithmetic():
         assert not app.exception
         assert any("緩衝池退休法" in s.value for s in app.subheader)
         assert pick(app, "number_input", "本金（萬元）").value == 3000.0
-        shown = {m.label: m.value for m in app.metric}
-        assert shown["成長池"] == "2,700 萬"
-        assert shown["緩衝池"] == "300 萬"
-        assert shown["首年生活費"] == "102 萬"
+        # The figures live in the pool diagram now, which replaced the cards and the table.
+        diagram = next(h.proto.body for h in app.get("html") if 'class="rp"' in h.proto.body)
+        for figure in ["2,700 萬", "300 萬", "108 萬", "408 萬", "102 萬", "8.5 萬", "撥出 4.0%", "提領 25%"]:
+            assert figure in diagram, figure
 
 
 def test_common_period_explains_both_limiting_symbols():
@@ -515,16 +515,16 @@ def test_the_retirement_tab_draws_the_backtest_and_offers_the_rate():
         assert not app.exception
         rate = pick(app, "slider", "每年從成長池撥出（%）")
         assert rate.value == 4.0, "the default has to be the rate the page explains"
-        which = pick(app, "radio", "用哪個配置回測")
+        which = pick(app, "radio", "配置")
         assert list(which.options) == ["退休5", "退休6", "退休7", "退休8"]
         # 退休5 has no history to run, so the one that can be looked at is the default.
         assert which.value == "退休6"
         assert len(app.get("vega_lite_chart")) == 1, "the backtest chart never rendered"
         shown = {m.label: m.value for m in app.metric}
         assert "期末總資產" in shown and shown["期末總資產"].endswith("萬")
-        # The long prose is behind expanders now; the calculator and the chart are not.
+        # The long prose is behind expanders; the diagram and the chart are not.
         labels = [e.label for e in app.expander]
-        for section in ["一年只做哪兩個動作", "每個數字為什麼是那個數字", "為什麼不需要再平衡"]:
+        for section in ["執行面：金額一年決定一次，動用分十二個月", "每個數字為什麼是那個數字", "為什麼不需要再平衡"]:
             assert section in labels, section
 
 

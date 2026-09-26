@@ -545,3 +545,26 @@ def test_the_buffer_is_named_not_guessed_from_the_weights():
     assert BUFFER_SYMBOL not in growth
     assert buffer_weight == 10.0
     assert set(growth) == {'0050.TW', '00662.TW'}
+
+
+def test_the_currency_split_is_read_off_the_preset():
+    """退休8 is half NT$ (0050) and half US$ (00662 and the buffer); 退休6 is all US$.
+    The diagram's currency bar says this, so it has to come from the weights."""
+    from retirement_strategy import currency_mix
+    assert currency_mix("退休8") == pytest.approx((0.5, 0.5))
+    assert currency_mix("退休7") == pytest.approx((0.9, 0.1))
+    assert currency_mix("退休6") == pytest.approx((0.0, 1.0))
+
+
+def test_the_pool_diagram_prints_the_calculators_figures():
+    """The picture replaced the cards and the table, so every figure on it must be the
+    plan's own -- move the rate and the arrows have to move with it."""
+    from retirement_strategy import pool_diagram
+    plan = pool_plan(3000 * 10000, growth_share(PRESET, "退休8"))
+    html = pool_diagram(plan, "退休8")
+    for figure in ["2,700 萬", "108 萬", "408 萬", "102 萬", "8.5 萬", "0050 台灣50", "00662 那斯達克100"]:
+        assert figure in html, figure
+    moved = pool_diagram(pool_plan(3000 * 10000, growth_share(PRESET, "退休8"), 0.05), "退休8", 0.05)
+    assert "撥出 5.0%" in moved and "135 萬" in moved
+    # A principal small enough that a month is under one 萬 still prints a figure.
+    assert "None" not in pool_diagram(pool_plan(100 * 10000, 0.9), "退休6")

@@ -39,7 +39,7 @@ HELD_FRACTION = 11 / 24
 POSTER = Path(__file__).resolve().parent.parent / 'analysis' / 'retirement5-original-100-12.png'
 
 ORIGINAL = '原始設計 100：12'
-PRESET = 'APP 預設（退休5／退休6）'
+PRESET = 'APP 預設 90：10'
 
 # Every preset that is this rule gets offered here, including the one a reader would
 # actually hold and that has no history to run: 009826 listed in July 2026. The others
@@ -132,6 +132,121 @@ def monthly_execution_gain(spend, annual_yield=BUFFER_YIELD):
     which is why it is a function of its own rather than another key in pool_plan.
     """
     return spend * annual_yield * HELD_FRACTION
+
+
+# What each holding is, in the words the diagram prints under its code, and which currency
+# a NT$ holder is exposed to through it. Only 0050 is a Taiwan asset: the others are listed
+# here or trade in dollars, but hold foreign assets unhedged, so they move with the dollar.
+HOLDING_NAMES = {'0050.TW': '台灣50', '00662.TW': '那斯達克100', 'VT': '全世界股票',
+                 '009826.TW': '世界股票', BUFFER_SYMBOL: '美國短債'}
+TWD_HOLDINGS = {'0050.TW'}
+
+_DIAGRAM_CSS = """<style>
+.rp{--g:#3E9C86;--b:#D2963F;--w:#7F9BBA;--twd:#C8604E;--usd:#4F7FB5;
+  --ln:rgba(128,128,128,.28);--soft:rgba(128,128,128,.08);font-size:14px;line-height:1.6;margin:4px 0 8px}
+.rp .flow{display:grid;grid-template-columns:1.3fr auto 1fr auto .9fr;align-items:stretch}
+.rp .node{border:1px solid var(--ln);border-radius:12px;padding:14px 16px;display:grid;gap:8px;align-content:start}
+.rp .node.g{border-top:4px solid var(--g)} .rp .node.b{border-top:4px solid var(--b)} .rp .node.w{border-top:4px solid var(--w)}
+.rp .t{font-weight:700;font-size:17px} .rp .t span{font-weight:400;font-size:13px;opacity:.65;margin-left:6px}
+.rp .amt{font-size:26px;font-weight:700;line-height:1.15;font-variant-numeric:tabular-nums}
+.rp .g .amt{color:var(--g)} .rp .b .amt{color:var(--b)} .rp .w .amt{color:var(--w)}
+.rp .amt small{font-size:13px;font-weight:400;opacity:.7;margin-left:3px}
+.rp .h{display:flex;gap:8px;align-items:center;justify-content:space-between;background:var(--soft);
+  border-radius:7px;padding:5px 9px;font-size:13px}
+.rp .h span:first-child{flex:1;min-width:0}
+.rp .h b{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rp .cur{font-size:11px;font-weight:700;padding:0 7px;border-radius:99px;color:#fff;white-space:nowrap}
+.rp .cur.twd{background:var(--twd)} .rp .cur.usd{background:var(--usd)}
+.rp .role{font-size:12.5px;opacity:.7;margin:0}
+.rp .arr{display:grid;justify-items:center;align-content:center;gap:2px;padding:0 10px;min-width:104px;text-align:center}
+.rp .arr .k{font-size:11.5px;opacity:.65;letter-spacing:.06em}
+.rp .arr .v{font-weight:700;font-size:15px} .rp .a1 .v{color:var(--g)} .rp .a2 .v{color:var(--b)}
+.rp .arr .n{font-size:12.5px;opacity:.7;font-variant-numeric:tabular-nums}
+.rp .arr .line{width:100%;height:0;border-top:1.6px solid currentColor;position:relative;margin:4px 0}
+.rp .arr .line::after{content:"";position:absolute;right:-2px;top:-6px;border:5.5px solid transparent;border-left:9px solid currentColor;border-right:0}
+.rp .fx{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.rp .panel{border:1px solid var(--ln);border-radius:12px;padding:12px 16px;display:grid;gap:8px;align-content:start}
+.rp .panel .pt{font-weight:700;font-size:14px}
+.rp .panel p{margin:0;font-size:12.5px;opacity:.75}
+.rp .bar{display:flex;height:28px;border-radius:7px;overflow:hidden;font-size:12px;font-weight:700;color:#fff}
+.rp .bar span{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden}
+.rp .bar .twd{background:var(--twd)} .rp .bar .usd{background:var(--usd)}
+.rp .months{display:grid;grid-template-columns:repeat(12,1fr);gap:3px}
+.rp .months i{height:24px;border-radius:4px;background:var(--soft);border-bottom:3px solid var(--b);
+  font-style:normal;font-size:10.5px;opacity:.85;display:grid;place-items:center}
+.rp .note{font-size:12.5px;opacity:.7;margin:10px 0 0}
+@media (max-width:760px){
+  .rp .flow{grid-template-columns:1fr}
+  .rp .arr{padding:8px 0}
+  .rp .arr .line{width:0;height:26px;border-top:0;border-left:1.6px solid currentColor}
+  .rp .arr .line::after{right:auto;left:-6px;top:auto;bottom:-2px;border:5.5px solid transparent;border-top:9px solid currentColor;border-bottom:0}
+  .rp .fx{grid-template-columns:1fr}
+}
+</style>"""
+
+
+def currency_mix(preset):
+    """The NT$ and US$ shares of a preset, read off its weights and TWD_HOLDINGS."""
+    weights = PRESETS[preset]['weights']
+    twd = sum(w for s, w in weights.items() if s in TWD_HOLDINGS) / sum(weights.values())
+    return twd, 1 - twd
+
+
+def _w(value):
+    """wan(), falling back to whole NT$ below one 萬 so a small principal still reads."""
+    return wan(value) or f'{value:,.0f} 元'
+
+
+def pool_diagram(plan, preset, transfer_rate=TRANSFER_RATE, withdraw_rate=WITHDRAW_RATE):
+    """The rule on one picture: two pools, the two yearly rates between them, the wallet.
+
+    Built from `plan` so every figure on it is the calculator's, and from `preset` so the
+    holdings and the currency split are the ones being run below it.
+    """
+    growth, buffer_weight = pool_split(preset)
+
+    def holding(symbol, weight_text):
+        cur = 'twd' if symbol in TWD_HOLDINGS else 'usd'
+        return (f'<div class="h"><span>{symbol.removesuffix(".TW")} {HOLDING_NAMES.get(symbol, "")}</span>'
+                f'<b>{weight_text}</b><span class="cur {cur}">{"台幣" if cur == "twd" else "美元"}</span></div>')
+
+    # Shares of the whole, as the preset writes them: 退休8 reads 50 and 40, not 56 and 44.
+    growth_rows = ''.join(holding(s, f'{w:.0f}%')
+                          for s, w in sorted(growth.items(), key=lambda i: -i[1]))
+    twd, usd = currency_mix(preset)
+    bar = ''.join(f'<span class="{c}" style="width:{v:.1%}">{label} {v:.0%}</span>'
+                  for c, label, v in (('twd', '台幣', twd), ('usd', '美元', usd)) if v > 0.005)
+    if twd > 0.005:
+        mix_note = ('台幣升值時，台幣資產不受影響；股災時美元通常走強，美元資產撐住。'
+                    '兩種貨幣都有，哪個方向都不會全押。')
+    else:
+        mix_note = ('這個配置全部是未避險的美元資產：股災時美元通常走強，但台幣升值時'
+                    '兩個池子會一起縮水。')
+    months = ''.join(f'<i>{m}</i>' for m in range(1, 13))
+    return (_DIAGRAM_CSS + '<div class="rp">'
+            '<div class="flow">'
+            f'<div class="node g"><div class="t">成長池<span>{plan["growth"] / (plan["growth"] + plan["buffer"]):.0%}</span></div>'
+            f'<div class="amt">{_w(plan["growth"])}</div>{growth_rows}'
+            '<p class="role">負責長大。不再平衡，讓它自己長。</p></div>'
+            f'<div class="arr a1"><div class="k">每年 1 月</div><div class="v">撥出 {transfer_rate:.1%}</div>'
+            f'<div class="line"></div><div class="n">{_w(plan["transfer"])}</div></div>'
+            f'<div class="node b"><div class="t">緩衝池<span>{plan["buffer"] / (plan["growth"] + plan["buffer"]):.0%}</span></div>'
+            f'<div class="amt">{_w(plan["buffer"])}<small>→ {_w(plan["pooled"])}</small></div>'
+            f'{holding(BUFFER_SYMBOL, f"{buffer_weight:.0f}%")}'
+            '<p class="role">負責發錢。收到撥款後，定出今年的生活費。</p></div>'
+            f'<div class="arr a2"><div class="k">每年</div><div class="v">提領 {withdraw_rate:.0%}</div>'
+            f'<div class="line"></div><div class="n">{_w(plan["spend"])}<br>每月 {_w(plan["monthly"])}</div></div>'
+            f'<div class="node w"><div class="t">生活費</div>'
+            f'<div class="amt">{_w(plan["spend"])}<small>／年</small></div>'
+            '<p class="role">隨市場浮動，但一年只變一次；每月從緩衝池賣出十二分之一。</p></div>'
+            '</div>'
+            '<p class="note">只有這三個動作：不換定存、不挑時點、不再平衡。</p>'
+            '<div class="fx">'
+            f'<div class="panel"><div class="pt">匯率分散之一：資產上</div><div class="bar">{bar}</div>'
+            f'<p>{mix_note}</p></div>'
+            f'<div class="panel"><div class="pt">匯率分散之二：時間上</div><div class="months">{months}</div>'
+            '<p>生活費每月換一次台幣，一年分散在 12 個匯率上，不押在同一天。</p></div>'
+            '</div></div>')
 
 
 def month_ends(growth_prices, buffer_prices):
@@ -497,24 +612,16 @@ def _caption(card, title, value, note):
     card.metric(title, value, delta=note, delta_color='off', delta_arrow='off')
 
 
-def _render_backtest(principal, shape, transfer_rate):
-    st.markdown('### 這條規則走過真實行情')
-    preset = st.radio(
-        '用哪個配置回測', BACKTEST_PRESETS,
-        index=BACKTEST_PRESETS.index(BACKTEST_DEFAULT), horizontal=True,
-        key='retirement_backtest_preset',
-        help='都是同一條規則、同樣 90：10，只差成長池裝什麼（退休8 的成長池有兩檔，各提 4%）。'
-             '緩衝池是同一檔，所以跑得動的那幾個落在同一段期間，可以直接對照。')
+def _render_backtest(principal, shape, transfer_rate, preset=BACKTEST_DEFAULT):
+    st.markdown(f'### {preset} 走過真實行情')
     growth_symbols, buffer_symbol = backtest_holdings(preset)
-    growth_weights, buffer_weight = pool_split(preset)
+    growth_weights, _ = pool_split(preset)
     share = growth_share(shape, preset)
     pool_text = '＋'.join(f'{s} {growth_weights[s]:.0f}%' for s in growth_symbols)
-    st.caption(f'**{preset}**：{pool_text} ＋ {buffer_symbol} {buffer_weight:.0f}%'
-               + ('　·　成長池兩檔，每年**各提 4%** 到緩衝池（總額與整池提 4% 相同，'
-                  '且兩檔的比例不受撥款影響）' if len(growth_symbols) > 1 else ''))
     note = BACKTEST_NOTES.get(preset)
     if note:
-        (st.warning if preset in ('退休7', '退休8') else st.info)(note)
+        with st.expander(f'讀這段回測之前：{preset} 的成長池'):
+            st.markdown(note)
     prices = None
     try:
         prices = backtest_prices(datetime.now(ZoneInfo('Asia/Taipei')).date(), preset)
@@ -533,8 +640,7 @@ def _render_backtest(principal, shape, transfer_rate):
                 st.caption('、'.join(growth_symbols) + f' 與 {buffer_symbol} 只在 '
                            f'{overlap.index[0]:%Y/%m/%d} 之後同時有行情，'
                            f'到 {overlap.index[-1]:%Y/%m/%d} 共 {span:.2f} 年。')
-        st.caption('上面的年度試算不受影響，它不需要行情。'
-                   '想看這條規則跑起來的樣子，改選其他有夠長歷史的配置。')
+        st.caption('上面的圖不受影響，它不需要行情。想看回測，改選其他有夠長歷史的配置。')
         return
 
     first, last = run.index[0], run.index[-1]
@@ -552,14 +658,9 @@ def _render_backtest(principal, shape, transfer_rate):
     pool_daily = growth_pool(common.drop(columns='buffer'), growth_weights)
     episodes = drawdown_episodes(pool_daily)
     st.altair_chart(income_chart(run, episodes), width='stretch')
-    st.caption('**金色長條**：那個月實際領到的生活費（右軸為總資產，兩者刻度不同）。'
-               '**紫色長條**：每年執行撥款的那個月 —— 在那一天從成長池撥出、'
-               '並重新算出接下來十二個月的金額。'
-               '**它的高度和同年其他月份一樣**，標的是「哪個月做了決定」而不是「那個月領比較多」；'
-               '撥了多少錢把游標移上去就看得到。'
-               '**青綠色線**：成長池＋緩衝池的合計市值，已扣掉每個月領走的錢。'
-               '年度金額一年只重算一次，所以長條是一年一階。'
-               f'**紅色區塊**：成長池跌超過 {SHADE_DEEPER_THAN:.0%} 的期間，由高點畫到收復當月。')
+    st.caption('**金色長條**：每月生活費，一年一階。**紫色長條**：每年 1 月撥款、重算生活費的那個月。'
+               '**青綠色線**：總資產（右軸），已扣掉領走的錢。'
+               f'**紅色區塊**：成長池跌超過 {SHADE_DEEPER_THAN:.0%}，由高點到收復。')
 
     if episodes:
         rows = ['| 期間 | 成長池跌幅 | 收復 | 同期緩衝池 | 可能對應的事件 |', '|---|---|---|---|---|']
@@ -571,13 +672,10 @@ def _render_backtest(principal, shape, transfer_rate):
                         f'{item["跌幅"]:.1%} | {recovered} | {pool:+.1%} | '
                         f'{item["名稱"] or "—"} |')
         with st.expander(f'這段歷史經歷過的震盪（成長池跌超過 {EPISODE_THRESHOLD:.0%} 的 '
-                         f'{len(episodes)} 次）', expanded=True):
+                         f'{len(episodes)} 次）'):
             st.markdown(chr(10).join(rows))
-            st.caption('**日期與跌幅是從行情算出來的；最後一欄的名稱不是。** '
-                       '那是一般市場認知，程式無法驗證，也不保證是唯一或主要的原因；'
-                       '認不出來的就留白，不硬給一個說法。'
-                       '「同期緩衝池」是同一段期間緩衝池自己的漲跌 —— '
-                       '**這一欄才是這個設計成立與否的關鍵**：它撐住了，生活費才撐得住。')
+            st.caption('日期與跌幅由行情算出；事件名稱是一般市場認知，認不出的留白。'
+                       '**「同期緩衝池」是關鍵**：它撐住了，生活費才撐得住。')
 
     paid = yearly_income(run)
     cards = st.columns(4)
@@ -599,24 +697,18 @@ def _render_backtest(principal, shape, transfer_rate):
     # follows the sidebar rather than the data. Neither figure is wrong and nothing else on
     # either page says so, so the reconciliation goes next to the number people compare.
     spent = float(run['當月生活費'].sum())
-    st.caption(f'**期末總資產是領走生活費之後的餘額。** 這段期間累計領了 '
-               f'**{wan(spent) or f"{spent:,.0f} 元"}**，連同領走的部分合計 '
+    st.caption(f'**期末總資產是領走生活費之後的餘額。** 累計領了 '
+               f'**{wan(spent) or f"{spent:,.0f} 元"}**，連同領走的合計 '
                f'**{wan(run["總資產"].iloc[-1] + spent)}**。'
-               f'「投資報酬」分頁算的是買進持有、一毛不提，期間又跟著側邊欄的「比較區間」走'
-               f'（本頁固定 {run.index[0]:%Y/%m} — {run.index[-1]:%Y/%m}），'
-               '所以兩頁的總金額不能直接對照 —— '
-               '差額除了領走的錢，還有每年撥進緩衝池的部分不再參與成長池報酬的拖累。')
+               '「投資報酬」分頁算的是買進持有、一毛不提，期間也跟著側邊欄走，兩頁不能直接對照。')
 
     # The "為什麼不需要再平衡" section says the buffer settles near a tenth. It does -- at the
     # return gap that algebra was solved for. A faster growth pool dilutes it, and that is
     # measurable right here, so it gets said next to the number rather than left to contradict
     # the expander further down the page.
     share_now = run['緩衝池'].iloc[-1] / run['總資產'].iloc[-1]
-    st.caption(f'期末緩衝池佔總資產 **{share_now:.1%}**（起始 {1 - share:.1%}）。'
-               '規則的自我平衡點是 0.04k ÷ (1 − k)，而 k 取決於兩個池子的報酬差 —— '
-               '**成長池跑得越快，緩衝池被稀釋得越薄**，'
-               '所以「穩定在一成」是那組報酬假設下的結果，不是規則保證的常數。'
-               '想看代數請展開下方「為什麼不需要再平衡」。')
+    st.caption(f'期末緩衝池佔總資產 **{share_now:.1%}**（起始 {1 - share:.1%}）：'
+               '成長池跑得越快，緩衝池被稀釋得越薄（見下方「為什麼不需要再平衡」）。')
     # A slider nobody can compare against is just a number that moves. Same history, same
     # principal, only the rate different -- that is the whole question being asked.
     if abs(transfer_rate - TRANSFER_RATE) > 1e-9:
@@ -645,23 +737,14 @@ def _render_backtest(principal, shape, transfer_rate):
     from market import fx_rates
     currency = worst_fall_without_the_currency(buffer_prices, fx_rates())
     if currency and currency['跌幅'] <= -0.05:
-        st.warning(
+        st.caption(
             f'**緩衝池自己也跌過 {abs(currency["跌幅"]):.1%}**'
             f'（{currency["高點"]:%Y/%m} → {currency["谷底"]:%Y/%m}），'
-            f'但同一段期間用美元計價只有 {currency["美元計價"]:+.1%} —— '
-            f'**那不是債券跌，是台幣升值。** {buffer_symbol} 持有的是美國公債、以台幣掛牌，'
-            '沒有避險。對一個用台幣過日子的人來說，這代表'
-            '**緩衝池並不像規則假設的那麼穩**，而成長池（VT）同樣是未避險的美元曝險，'
-            '兩個池子會在台幣升值時一起縮水。'
-            '**這是退休5／退休6 本身的性質，不是回測的瑕疵。**')
+            f'同期用美元計價是 {currency["美元計價"]:+.1%}：那是台幣升值，不是債券跌。'
+            '這就是上面「匯率分散」在處理的風險。')
 
-    st.caption('**撥款日固定在 1 月，所以撥在崩盤前還是崩盤後純屬運氣** —— '
-               '這段歷史剛好是 2020 年 1 月撥完才遇到疫情急跌。'
-               '緩衝池的用處正是讓那個運氣沒那麼要緊，但它不會讓運氣消失。')
-    st.caption(f'**這是一段 {years:.1f} 年的歷史，不是長期驗證。** '
-               '期間只夠涵蓋 2020 年的急跌與 2022 年的股債同跌，沒有一次完整的長空頭。'
-               f'期間受 {buffer_symbol} 的上市日限制（成長池本身有更長的歷史）。'
-               '未計稅、費用與交易成本。')
+    st.caption(f'**這是一段 {years:.1f} 年的歷史，不是長期驗證**：受 {buffer_symbol} 上市日限制，'
+               '只涵蓋 2020 急跌與 2022 股債同跌，沒有完整的長空頭。未計稅、費用與交易成本。')
 
 
 def _render_comparison(principal, shape, transfer_rate):
@@ -706,25 +789,24 @@ def _render_comparison(principal, shape, transfer_rate):
         row('期末緩衝池佔比', lambda r: f"{r['期末緩衝池佔比']:.1%}"),
     ]))
     st.caption(
-        f'期間 {window[0]:%Y/%m/%d} — {window[1]:%Y/%m/%d}，'
-        '取的是這些配置**都有行情**的交集 —— 各自用自己的期間去比，'
-        '等於獎勵那個剛好持有最年輕標的的配置。'
-        f'撥出率 {transfer_rate:.1%}、領出率 {WITHDRAW_RATE:.0%}，起始 {wan(principal)}。'
-        + (f'（{"、".join(left_out)} 沒有納入：歷史不足一個完整年度。）' if left_out else ''))
-    st.info('**收入與期末資產贏的那一欄，回撤與緩衝池厚度也是輸的那一欄。** '
-            '兩件事是同一個選擇的兩面，分開看就會只看到想看的那一面。'
-            '報酬差距是這段特定歷史的結果 —— 上面選到退休7 時的警語講的就是這件事。')
+        f'期間 {window[0]:%Y/%m/%d} — {window[1]:%Y/%m/%d}（各配置都有行情的交集），'
+        f'撥出率 {transfer_rate:.1%}，起始 {wan(principal)}。'
+        + (f'{"、".join(left_out)} 歷史不足一年，未納入。' if left_out else '')
+        + '**收入贏的那一欄，回撤也是輸的那一欄**；報酬差距是這段歷史的結果。')
 
 
 def render_strategy():
     st.subheader('緩衝池退休法：成長池 ＋ 緩衝池')
     st.markdown(
-        '**不是每年固定領多少錢，而是每年領走資產的一個比例。** 因為永遠只拿走一部分，'
-        '這種規則在定義上不會把錢領到見底 —— 代價是收入會跟著市場上下。'
-        '緩衝池的唯一工作，就是把那個上下壓平到能過日子的幅度。\n\n'
-        '**年生活費 ＝（成長池 × 撥出率 ＋ 緩衝池）× 25%**')
+        '**每年領走資產的一個比例，而不是固定金額**，所以在定義上不會把錢領到見底；'
+        '代價是收入跟著市場上下，緩衝池的工作就是把那個上下壓平。')
 
-    st.markdown('### 換成你的金額')
+    # The preset leads because the picture below it names the holdings and their currency,
+    # and the backtest further down runs the same one -- one choice, not two that can differ.
+    preset = st.radio(
+        '配置', BACKTEST_PRESETS, index=BACKTEST_PRESETS.index(BACKTEST_DEFAULT),
+        horizontal=True, key='retirement_backtest_preset',
+        help='都是同一條規則、同樣 90：10，只差成長池裝什麼。緩衝池是同一檔 00865B。')
     left, middle, right = st.columns([1.1, 1.1, 1.4])
     principal_wan = left.number_input(
         '本金（萬元）', min_value=100.0, max_value=100000.0, step=100.0,
@@ -732,68 +814,34 @@ def render_strategy():
     # The preset comes first: this page exists to explain what the app actually does, and
     # the poster is captioned as the other ratio.
     shape = middle.radio('配置比例', [PRESET, ORIGINAL], key='retirement_shape',
-                         help='APP 的退休5／退休6 用比較好記的 90：10；圖上畫的是原始的 100：12。')
+                         help='APP 的預設用比較好記的 90：10；原始設計是 100：12。')
     transfer_rate = right.slider(
         '每年從成長池撥出（%）', min_value=TRANSFER_RANGE[0], max_value=TRANSFER_RANGE[1],
         value=TRANSFER_RATE * 100, step=0.5, format='%.1f%%', key='retirement_transfer_rate',
-        help='這是設計裡唯一決定「生活費水準」的數字，調動它整條收入曲線會跟著上下移。'
-             '領出率固定在 25%，因為那決定的是平滑程度而不是水準。') / 100
-    share = growth_share(shape)
+        help='決定生活費水準的數字。領出率固定在 25%，它決定的是平滑程度而不是水準。') / 100
+    share = growth_share(shape, preset)
     plan = pool_plan(principal_wan * 10000, share, transfer_rate)
-
-    cards = st.columns(4)
-    _caption(cards[0], '成長池', wan(plan['growth']), f'{share:.1%}')
-    _caption(cards[1], '緩衝池', wan(plan['buffer']), f'{1 - share:.1%}')
-    _caption(cards[2], '首年生活費', wan(plan['spend']), f'佔本金 {plan["spend_rate"]:.3%}')
-    _caption(cards[3], '平均每月', wan(plan['monthly']), '總額 ÷ 12，未計稅與費用')
-
-    kept = 1 - transfer_rate
-    st.markdown(
-        '| 步驟 | 算式 | 結果 |\n|---|---|---|\n'
-        f'| 成長池撥出 | {wan(plan["growth"])} × {transfer_rate:.1%} | {wan(plan["transfer"])} |\n'
-        f'| 撥入後的緩衝池 | {wan(plan["buffer"])} ＋ {wan(plan["transfer"])} | {wan(plan["pooled"])} |\n'
-        f'| 今年生活費 | {wan(plan["pooled"])} × {WITHDRAW_RATE:.0%} | **{wan(plan["spend"])}** |\n'
-        f'| 留在緩衝池 | {wan(plan["pooled"])} × {1 - WITHDRAW_RATE:.0%} | {wan(plan["buffer_left"])} |\n'
-        f'| 留在成長池 | {wan(plan["growth"])} × {kept:.1%} | {wan(plan["growth_left"])} |\n')
-    st.caption(f'緩衝池的存量相當於 {plan["buffer_years"]:.2f} 年的生活費。')
+    st.html(pool_diagram(plan, preset, transfer_rate))
 
     # The balance is a property of 4% against a three-year buffer, not of the rule, so a
-    # moved slider has to say which way it now leans rather than let the table imply it holds.
+    # moved slider has to say which way it now leans rather than let the picture imply it holds.
     if plan['spend'] > plan['transfer'] * 1.001:
-        st.warning(f'**撥出率調到 {transfer_rate:.1%} 之後，領出的錢多過撥入的錢**'
-                   f'（{wan(plan["spend"])} vs {wan(plan["transfer"])}）。'
-                   '緩衝池會逐年變薄，平滑的能力跟著變弱；生活費一開始比較高，'
-                   '但這是把緩衝挪去花掉換來的。')
-    elif plan['transfer'] > plan['spend'] * 1.001:
-        st.caption(f'撥出 {wan(plan["transfer"])}、領出 {wan(plan["spend"])}，'
-                   '撥入多過領出，緩衝池會慢慢變厚。')
+        st.warning(f'**撥出率 {transfer_rate:.1%} 時，領出多過撥入**'
+                   f'（{_w(plan["spend"])} vs {_w(plan["transfer"])}），緩衝池會逐年變薄。')
 
-    _render_backtest(principal_wan * 10000, shape, transfer_rate)
+    _render_backtest(principal_wan * 10000, shape, transfer_rate, preset)
     _render_comparison(principal_wan * 10000, shape, transfer_rate)
 
     st.markdown('### 想看細節的話')
-    with st.expander('一年只做哪兩個動作'):
-        st.markdown(
-            f'1. **從成長池撥出當時市值的 {transfer_rate:.1%}**，放進緩衝池。'
-            f'剩下的 {kept:.1%} 繼續投資，不動。\n'
-            f'2. **從緩衝池領出 {WITHDRAW_RATE:.0%}** 當今年的生活費 —— 這一步決定的是'
-            '**今年的總額**，不是非得一次領完（見「執行面」）。'
-            f'剩下的 {1 - WITHDRAW_RATE:.0%} 留著，繼續當緩衝。')
-
-    with st.expander('執行面：金額一年決定一次，動用可以分月'):
+    with st.expander('執行面：金額一年決定一次，動用分十二個月'):
         gain = monthly_execution_gain(plan['spend'])
         st.markdown(
-            '**撥款是一年一次的動作。** 在那一天用當時的市值算出撥出額與今年的生活費總額，'
-            '算完就固定了，接下來一整年不再隨市場變動。\n\n'
-            '**但「領出來」不必一次領完。** 把總額分成十二份逐月動用，效果是一樣的，'
-            '而且還沒動用的部分留在緩衝池裡繼續生息。以 00865B 實測年化 2.89% 估，'
-            f'分月動用比年初一次領出大約多 **{wan(gain)}**／年'
-            f'（約等於生活費的 {gain / plan["spend"]:.1%}）—— 金額不大，但方向對你有利。\n\n'
-            '**上面那張回測圖跑的就是分月動用**，所以它已經含進這個好處；'
-            'WORKLOG 裡引用的四十年模擬則是年初一次扣掉，因此比實際保守一點。')
-        st.warning('**分月動用不等於每月重算。** 每個月只是把年初算好的總額取出十二分之一；'
-                   '若改成每個月重新計算一次「緩衝池的 25%」，那是完全不同的規則 —— '
-                   '一年會領走緩衝池的 96.8%（1 − 0.75¹²），緩衝立刻消失。'
+            '**每年 1 月算一次**撥出額與今年的生活費總額，算完就固定，一整年不隨市場變動。'
+            '**動用分十二個月**，還沒動用的部分留在緩衝池裡繼續生息：以 00865B 實測年化 2.89% 估，'
+            f'比年初一次領出約多 **{_w(gain)}**／年（生活費的 {gain / plan["spend"]:.1%}）。'
+            '上面的回測圖跑的就是分月動用。')
+        st.warning('**分月動用不等於每月重算。** 每個月只取出年初總額的十二分之一；'
+                   '若每個月都重算「緩衝池的 25%」，一年會領走緩衝池的 96.8%（1 − 0.75¹²）。'
                    '**25% 是年度比率，不是月度比率。**')
 
     with st.expander('每個數字為什麼是那個數字'):
