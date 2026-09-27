@@ -55,6 +55,8 @@ BACKTEST_FROM = date(2008, 1, 1)
 # lets a growth pool hold more than one thing: 退休8 splits its 90% across two, and the
 # smallest-weight rule would have called one of those the buffer.
 BUFFER_SYMBOL = '00865B.TW'
+# 退休9 stands SHV in for it: the same short US Treasuries, with prices back to 2007.
+BUFFER_SYMBOLS = (BUFFER_SYMBOL, 'SHV')
 
 # What a reader has to know about the holding they just picked. Kept beside the choice
 # rather than in a footnote: the numbers underneath change completely with it.
@@ -81,6 +83,14 @@ BACKTEST_NOTES = {
              '**成長池內部沒有再平衡**：實測 0050 佔成長池的比例由 55.6% 漂到 66.5%，'
              '所以「50：40」是起始條件，不是長期會維持的東西 —— '
              '這與第四十六次評估「成長池拆成世界＋台股」時記下的同一個問題。'),
+    '退休9': ('**這是退休8 的長期模擬，不是另一個配置。** 00662 換成 QQQ、00865B 換成 SHV，'
+             '兩者都換算成台幣。回測由 2009-01 開始 —— 卡在 Yahoo 的 0050 價格只到 2009-01-02，'
+             '所以**碰不到 2008 年的金融海嘯**，但涵蓋 2011、2015、2018、2020、2022。\n\n'
+             '**替身有多像（實測）：** 同樣從 2020-01 起跑，退休9 期末 10,752 萬、退休8 10,536 萬；'
+             '2025 年生活費 183 萬對 179 萬。QQQ 換算台幣後年化 21.37%，00662 為 19.79%'
+             '（2016-07 起，月報酬相關 0.93）；SHV 每年約比 00865B 高 0.3 個百分點。'
+             '**替身的費用較低，所以這裡的數字略偏樂觀。**\n\n'
+             '成長池押在台積電與美國科技股的問題與退休8 相同，這 17 年同樣是它們表現特別好的一段。'),
 }
 
 
@@ -90,8 +100,8 @@ def pool_split(preset):
     Everything that is not the buffer is the growth pool, however many holdings that is.
     """
     weights = PRESETS[preset]['weights']
-    growth = {symbol: weight for symbol, weight in weights.items() if symbol != BUFFER_SYMBOL}
-    return growth, weights.get(BUFFER_SYMBOL, 0.0)
+    growth = {symbol: weight for symbol, weight in weights.items() if symbol not in BUFFER_SYMBOLS}
+    return growth, sum(weights.get(symbol, 0.0) for symbol in BUFFER_SYMBOLS)
 
 
 def growth_share(shape, preset='退休5'):
@@ -138,7 +148,8 @@ def monthly_execution_gain(spend, annual_yield=BUFFER_YIELD):
 # a NT$ holder is exposed to through it. Only 0050 is a Taiwan asset: the others are listed
 # here or trade in dollars, but hold foreign assets unhedged, so they move with the dollar.
 HOLDING_NAMES = {'0050.TW': '台灣50', '00662.TW': '那斯達克100', 'VT': '全世界股票',
-                 '009826.TW': '世界股票', BUFFER_SYMBOL: '美國短債'}
+                 '009826.TW': '世界股票', BUFFER_SYMBOL: '美國短債',
+                 'QQQ': '那斯達克100', 'SHV': '美國短債'}
 TWD_HOLDINGS = {'0050.TW'}
 
 _DIAGRAM_CSS = """<style>
@@ -164,32 +175,14 @@ _DIAGRAM_CSS = """<style>
 .rp .arr .n{font-size:12.5px;opacity:.7;font-variant-numeric:tabular-nums}
 .rp .arr .line{width:100%;height:0;border-top:1.6px solid currentColor;position:relative;margin:4px 0}
 .rp .arr .line::after{content:"";position:absolute;right:-2px;top:-6px;border:5.5px solid transparent;border-left:9px solid currentColor;border-right:0}
-.rp .fx{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
-.rp .panel{border:1px solid var(--ln);border-radius:12px;padding:12px 16px;display:grid;gap:8px;align-content:start}
-.rp .panel .pt{font-weight:700;font-size:14px}
-.rp .panel p{margin:0;font-size:12.5px;opacity:.75}
-.rp .bar{display:flex;height:28px;border-radius:7px;overflow:hidden;font-size:12px;font-weight:700;color:#fff}
-.rp .bar span{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden}
-.rp .bar .twd{background:var(--twd)} .rp .bar .usd{background:var(--usd)}
-.rp .months{display:grid;grid-template-columns:repeat(12,1fr);gap:3px}
-.rp .months i{height:24px;border-radius:4px;background:var(--soft);border-bottom:3px solid var(--b);
-  font-style:normal;font-size:10.5px;opacity:.85;display:grid;place-items:center}
 .rp .note{font-size:12.5px;opacity:.7;margin:10px 0 0}
 @media (max-width:760px){
   .rp .flow{grid-template-columns:1fr}
   .rp .arr{padding:8px 0}
   .rp .arr .line{width:0;height:26px;border-top:0;border-left:1.6px solid currentColor}
   .rp .arr .line::after{right:auto;left:-6px;top:auto;bottom:-2px;border:5.5px solid transparent;border-top:9px solid currentColor;border-bottom:0}
-  .rp .fx{grid-template-columns:1fr}
 }
 </style>"""
-
-
-def currency_mix(preset):
-    """The NT$ and US$ shares of a preset, read off its weights and TWD_HOLDINGS."""
-    weights = PRESETS[preset]['weights']
-    twd = sum(w for s, w in weights.items() if s in TWD_HOLDINGS) / sum(weights.values())
-    return twd, 1 - twd
 
 
 def _w(value):
@@ -201,7 +194,7 @@ def pool_diagram(plan, preset, transfer_rate=TRANSFER_RATE, withdraw_rate=WITHDR
     """The rule on one picture: two pools, the two yearly rates between them, the wallet.
 
     Built from `plan` so every figure on it is the calculator's, and from `preset` so the
-    holdings and the currency split are the ones being run below it.
+    holdings are the ones being run below it.
     """
     growth, buffer_weight = pool_split(preset)
 
@@ -213,16 +206,6 @@ def pool_diagram(plan, preset, transfer_rate=TRANSFER_RATE, withdraw_rate=WITHDR
     # Shares of the whole, as the preset writes them: 退休8 reads 50 and 40, not 56 and 44.
     growth_rows = ''.join(holding(s, f'{w:.0f}%')
                           for s, w in sorted(growth.items(), key=lambda i: -i[1]))
-    twd, usd = currency_mix(preset)
-    bar = ''.join(f'<span class="{c}" style="width:{v:.1%}">{label} {v:.0%}</span>'
-                  for c, label, v in (('twd', '台幣', twd), ('usd', '美元', usd)) if v > 0.005)
-    if twd > 0.005:
-        mix_note = ('台幣升值時，台幣資產不受影響；股災時美元通常走強，美元資產撐住。'
-                    '兩種貨幣都有，哪個方向都不會全押。')
-    else:
-        mix_note = ('這個配置全部是未避險的美元資產：股災時美元通常走強，但台幣升值時'
-                    '兩個池子會一起縮水。')
-    months = ''.join(f'<i>{m}</i>' for m in range(1, 13))
     return (_DIAGRAM_CSS + '<div class="rp">'
             '<div class="flow">'
             f'<div class="node g"><div class="t">成長池<span>{plan["growth"] / (plan["growth"] + plan["buffer"]):.0%}</span></div>'
@@ -232,21 +215,17 @@ def pool_diagram(plan, preset, transfer_rate=TRANSFER_RATE, withdraw_rate=WITHDR
             f'<div class="line"></div><div class="n">{_w(plan["transfer"])}</div></div>'
             f'<div class="node b"><div class="t">緩衝池<span>{plan["buffer"] / (plan["growth"] + plan["buffer"]):.0%}</span></div>'
             f'<div class="amt">{_w(plan["buffer"])}<small>→ {_w(plan["pooled"])}</small></div>'
-            f'{holding(BUFFER_SYMBOL, f"{buffer_weight:.0f}%")}'
+            f'{holding(buffer_symbol(preset), f"{buffer_weight:.0f}%")}'
             '<p class="role">負責發錢。收到撥款後，定出今年的生活費。</p></div>'
             f'<div class="arr a2"><div class="k">每年</div><div class="v">提領 {withdraw_rate:.0%}</div>'
             f'<div class="line"></div><div class="n">{_w(plan["spend"])}<br>每月 {_w(plan["monthly"])}</div></div>'
             f'<div class="node w"><div class="t">生活費</div>'
             f'<div class="amt">{_w(plan["spend"])}<small>／年</small></div>'
-            '<p class="role">隨市場浮動，但一年只變一次；每月從緩衝池賣出十二分之一。</p></div>'
+            '<p class="role">一年只在 1 月定一次。每月從緩衝池賣出'
+            f' {_w(plan["monthly"])}，<b>＝ 今年生活費 ÷ 12</b>。</p></div>'
             '</div>'
             '<p class="note">只有這三個動作：不換定存、不挑時點、不再平衡。</p>'
-            '<div class="fx">'
-            f'<div class="panel"><div class="pt">匯率分散之一：資產上</div><div class="bar">{bar}</div>'
-            f'<p>{mix_note}</p></div>'
-            f'<div class="panel"><div class="pt">匯率分散之二：時間上</div><div class="months">{months}</div>'
-            '<p>生活費每月換一次台幣，一年分散在 12 個匯率上，不押在同一天。</p></div>'
-            '</div></div>')
+            '</div>')
 
 
 def month_ends(growth_prices, buffer_prices):
@@ -458,7 +437,12 @@ ASSET_COLOUR = '#35CDBF'
 def backtest_holdings(preset=BACKTEST_DEFAULT):
     """The growth pool's symbols, heaviest first, and the buffer's."""
     growth, _ = pool_split(preset)
-    return tuple(sorted(growth, key=growth.get, reverse=True)), BUFFER_SYMBOL
+    return tuple(sorted(growth, key=growth.get, reverse=True)), buffer_symbol(preset)
+
+
+def buffer_symbol(preset):
+    """The one buffer holding a preset has: 00865B, or the stand-in SHV for 退休9."""
+    return next(s for s in BUFFER_SYMBOLS if s in PRESETS[preset]['weights'])
 
 
 @st.cache_data(ttl=3600, max_entries=12, show_spinner=False)
@@ -541,6 +525,9 @@ def income_chart(run, episodes=()):
     frame = run.reset_index()
     frame['每月生活費（萬）'] = frame['當月生活費'] / 10000
     frame['總資產（萬）'] = frame['總資產'] / 10000
+    # The axis reads in 千萬: at these sizes a column of five-digit 萬 is harder to scan
+    # than 0.5, 1.0. The tooltip keeps 萬, where the exact figure is wanted.
+    frame['總資產（千萬）'] = frame['總資產'] / 10_000_000
     frame['成長池（萬）'] = frame['成長池'] / 10000
     frame['緩衝池（萬）'] = frame['緩衝池'] / 10000
     frame['當月撥款（萬）'] = frame['當月撥款'] / 10000
@@ -573,9 +560,9 @@ def income_chart(run, episodes=()):
                         legend=alt.Legend(orient='bottom')),
         tooltip=tooltip))
     layers.append(alt.Chart(frame).mark_line(color=ASSET_COLOUR, strokeWidth=2.5).encode(
-        x=when, y=alt.Y('總資產（萬）:Q', title='總資產（萬元）',
+        x=when, y=alt.Y('總資產（千萬）:Q', title='總資產（千萬元）',
                         axis=alt.Axis(titleColor=ASSET_COLOUR, labelColor=ASSET_COLOUR,
-                                      format=',.0f')),
+                                      format=',.0f', tickMinStep=1)),
         tooltip=tooltip))
     if marked:
         names = pd.DataFrame([
@@ -740,8 +727,7 @@ def _render_backtest(principal, shape, transfer_rate, preset=BACKTEST_DEFAULT):
         st.caption(
             f'**緩衝池自己也跌過 {abs(currency["跌幅"]):.1%}**'
             f'（{currency["高點"]:%Y/%m} → {currency["谷底"]:%Y/%m}），'
-            f'同期用美元計價是 {currency["美元計價"]:+.1%}：那是台幣升值，不是債券跌。'
-            '這就是上面「匯率分散」在處理的風險。')
+            f'同期用美元計價是 {currency["美元計價"]:+.1%}：那是台幣升值，不是債券跌。')
 
     st.caption(f'**這是一段 {years:.1f} 年的歷史，不是長期驗證**：受 {buffer_symbol} 上市日限制，'
                '只涵蓋 2020 急跌與 2022 股債同跌，沒有完整的長空頭。未計稅、費用與交易成本。')
@@ -799,7 +785,9 @@ def render_strategy():
     st.subheader('緩衝池退休法：成長池 ＋ 緩衝池')
     st.markdown(
         '**每年領走資產的一個比例，而不是固定金額**，所以在定義上不會把錢領到見底；'
-        '代價是收入跟著市場上下，緩衝池的工作就是把那個上下壓平。')
+        '代價是收入會跟著市場上下。緩衝池的工作是：\n\n'
+        '- **成長池大漲時**，避免生活費過度膨脹，把多的錢儲備給未來。\n'
+        '- **成長池大跌時**，避免生活費即刻銳減，讓生活保持穩定。')
 
     # The preset leads because the picture below it names the holdings and their currency,
     # and the backtest further down runs the same one -- one choice, not two that can differ.

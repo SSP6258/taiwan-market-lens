@@ -350,7 +350,9 @@ def test_every_backtest_preset_is_the_same_rule_in_different_clothes():
         buffers.add(buffer_symbol)
         splits.add((sum(growth_weights.values()), buffer_weight))
         amounts.add(PRESETS[name]['amount_wan'])
-    assert len(buffers) == 1, f'緩衝池不同就落不到同一段期間：{buffers}'
+    # One buffer, plus the one stand-in that exists to run 退休8 further back (退休9).
+    assert buffers == {BUFFER_SYMBOL, 'SHV'}, f'緩衝池不同就落不到同一段期間：{buffers}'
+    assert [n for n in BACKTEST_PRESETS if backtest_holdings(n)[1] != BUFFER_SYMBOL] == ['退休9']
     assert len(splits) == 1 and len(amounts) == 1
 
 
@@ -377,7 +379,7 @@ def test_the_share_is_the_pool_total_not_its_largest_holding():
         weights = PRESETS[name]['weights']
         assert growth_share(PRESET, name) == pytest.approx(0.9), name
         assert growth_share(PRESET, name) == pytest.approx(
-            sum(w for s, w in weights.items() if s != BUFFER_SYMBOL) / sum(weights.values()))
+            sum(w for s, w in weights.items() if s not in ('00865B.TW', 'SHV')) / sum(weights.values()))
     assert growth_share(PRESET, '退休8') != pytest.approx(
         max(PRESETS['退休8']['weights'].values()) / 100)
     # The original ratio is a property of the design, not of any preset's weights.
@@ -547,15 +549,6 @@ def test_the_buffer_is_named_not_guessed_from_the_weights():
     assert set(growth) == {'0050.TW', '00662.TW'}
 
 
-def test_the_currency_split_is_read_off_the_preset():
-    """退休8 is half NT$ (0050) and half US$ (00662 and the buffer); 退休6 is all US$.
-    The diagram's currency bar says this, so it has to come from the weights."""
-    from retirement_strategy import currency_mix
-    assert currency_mix("退休8") == pytest.approx((0.5, 0.5))
-    assert currency_mix("退休7") == pytest.approx((0.9, 0.1))
-    assert currency_mix("退休6") == pytest.approx((0.0, 1.0))
-
-
 def test_the_pool_diagram_prints_the_calculators_figures():
     """The picture replaced the cards and the table, so every figure on it must be the
     plan's own -- move the rate and the arrows have to move with it."""
@@ -564,7 +557,23 @@ def test_the_pool_diagram_prints_the_calculators_figures():
     html = pool_diagram(plan, "退休8")
     for figure in ["2,700 萬", "108 萬", "408 萬", "102 萬", "8.5 萬", "0050 台灣50", "00662 那斯達克100"]:
         assert figure in html, figure
+    # A twelfth of the year's spending, not of the buffer -- the two differ by a factor of four.
+    assert "＝ 今年生活費 ÷ 12" in html
     moved = pool_diagram(pool_plan(3000 * 10000, growth_share(PRESET, "退休8"), 0.05), "退休8", 0.05)
     assert "撥出 5.0%" in moved and "135 萬" in moved
     # A principal small enough that a month is under one 萬 still prints a figure.
     assert "None" not in pool_diagram(pool_plan(100 * 10000, 0.9), "退休6")
+
+
+def test_the_long_run_stand_in_splits_like_the_preset_it_models():
+    """退休9 is 退休8 with QQQ and SHV standing in. SHV has to be read as the buffer,
+    not as a third growth holding, or the pool would be 100% and the rule would move
+    4% out of a short-bond fund into itself."""
+    from retirement_strategy import buffer_symbol
+    growth, buffer_weight = pool_split("退休9")
+    assert growth == {"0050.TW": 50.0, "QQQ": 40.0}
+    assert buffer_weight == 10.0
+    assert backtest_holdings("退休9") == (("0050.TW", "QQQ"), "SHV")
+    assert buffer_symbol("退休8") == BUFFER_SYMBOL
+    assert pool_split("退休9")[0].keys() == {"0050.TW", "QQQ"}
+    assert list(PRESETS["退休9"]["weights"].values()) == list(PRESETS["退休8"]["weights"].values())

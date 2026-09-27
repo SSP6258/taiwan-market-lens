@@ -27,13 +27,17 @@ PRESETS = {
     # split between them exactly where the market put it -- nothing rebalances it.
     '退休8': {'weights': {'0050.TW': 50.0, '00662.TW': 40.0, '00865B.TW': 10.0},
               'amount_wan': 3000.0},
+    # 退休8 with US-listed stand-ins, so it can be run back to 2007 and through 2008:
+    # 00662 has prices from 2016 and 00865B from 2019, QQQ from 1999 and SHV from 2007.
+    # Not a holding anyone should buy instead -- a longer history for the one they hold.
+    '退休9': {'weights': {'0050.TW': 50.0, 'QQQ': 40.0, 'SHV': 10.0}, 'amount_wan': 3000.0},
 }
 
 # The presets that are the buffer-pool rule rather than a basket held to its opening
 # weights. The 緩衝池退休法 page offers exactly this set to backtest, so it reads the
 # list from here instead of keeping a second copy -- the two drifting apart would mean
 # the sidebar marks one thing and the page runs another.
-BUFFER_PRESETS = ('退休5', '退休6', '退休7', '退休8')
+BUFFER_PRESETS = ('退休5', '退休6', '退休7', '退休8', '退休9')
 
 
 def apply_preset():

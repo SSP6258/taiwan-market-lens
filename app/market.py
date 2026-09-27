@@ -24,6 +24,7 @@ CATALOG = {
     "8069.TWO": "元太",
     # Priced in dollars and converted on the way in; see to_twd.
     "VT": "Vanguard全世界股票",
+    "QQQ": "Invesco納斯達克100", "SHV": "iShares短期美國公債",
     "0050.TW": "元大台灣50", "006208.TW": "富邦台50",
     "0056.TW": "元大高股息", "00878.TW": "國泰永續高股息",
     "00919.TW": "群益台灣精選高息", "00929.TW": "復華台灣科技優息",

@@ -156,11 +156,11 @@ def test_marking_a_preset_did_not_cost_the_dropdown_what_it_already_said():
 def test_the_backtest_runs_exactly_the_presets_the_sidebar_marks():
     # Two lists would let the sidebar mark one set and the 緩衝池退休法 page run another,
     # and nothing on either screen would show the disagreement.
-    from retirement_strategy import BACKTEST_NOTES, BACKTEST_PRESETS, BUFFER_SYMBOL
+    from retirement_strategy import BACKTEST_NOTES, BACKTEST_PRESETS, BUFFER_SYMBOLS
     assert BACKTEST_PRESETS == allocation.BUFFER_PRESETS
     for name in allocation.BUFFER_PRESETS:
         assert name in allocation.PRESETS, name
         # Marked as this rule but not actually holding the buffer would mean the page
         # offers a preset it cannot split into two pools.
-        assert BUFFER_SYMBOL in allocation.PRESETS[name]['weights'], name
+        assert any(s in allocation.PRESETS[name]['weights'] for s in BUFFER_SYMBOLS), name
         assert name in BACKTEST_NOTES, name
