@@ -525,9 +525,12 @@ def income_chart(run, episodes=()):
     frame = run.reset_index()
     frame['每月生活費（萬）'] = frame['當月生活費'] / 10000
     frame['總資產（萬）'] = frame['總資產'] / 10000
-    # The axis reads in 千萬: at these sizes a column of five-digit 萬 is harder to scan
-    # than 0.5, 1.0. The tooltip keeps 萬, where the exact figure is wanted.
+    # The axis reads in 千萬: at these sizes a column of five-digit 萬 is harder to scan.
+    # Whole 千萬 ticks, unless the run never reaches two of them -- a smaller principal
+    # would otherwise be left with a lone 0 on the axis. The tooltip keeps 萬.
     frame['總資產（千萬）'] = frame['總資產'] / 10_000_000
+    asset_ticks = ({'format': ',.0f', 'tickMinStep': 1} if frame['總資產（千萬）'].max() >= 2
+                   else {'format': ',.1f'})
     frame['成長池（萬）'] = frame['成長池'] / 10000
     frame['緩衝池（萬）'] = frame['緩衝池'] / 10000
     frame['當月撥款（萬）'] = frame['當月撥款'] / 10000
@@ -562,7 +565,7 @@ def income_chart(run, episodes=()):
     layers.append(alt.Chart(frame).mark_line(color=ASSET_COLOUR, strokeWidth=2.5).encode(
         x=when, y=alt.Y('總資產（千萬）:Q', title='總資產（千萬元）',
                         axis=alt.Axis(titleColor=ASSET_COLOUR, labelColor=ASSET_COLOUR,
-                                      format=',.0f', tickMinStep=1)),
+                                      **asset_ticks)),
         tooltip=tooltip))
     if marked:
         names = pd.DataFrame([
@@ -729,8 +732,16 @@ def _render_backtest(principal, shape, transfer_rate, preset=BACKTEST_DEFAULT):
             f'（{currency["高點"]:%Y/%m} → {currency["谷底"]:%Y/%m}），'
             f'同期用美元計價是 {currency["美元計價"]:+.1%}：那是台幣升值，不是債券跌。')
 
-    st.caption(f'**這是一段 {years:.1f} 年的歷史，不是長期驗證**：受 {buffer_symbol} 上市日限制，'
-               '只涵蓋 2020 急跌與 2022 股債同跌，沒有完整的長空頭。未計稅、費用與交易成本。')
+    # Which holding starts last decides where the run can begin. It used to be the buffer for
+    # every preset; 退休9's SHV goes back further than its 0050, so it has to be looked up.
+    starts = {symbol: growth_prices[symbol].first_valid_index() for symbol in growth_symbols}
+    starts[buffer_symbol] = buffer_prices.first_valid_index()
+    limiter = max(starts, key=starts.get)
+    st.caption(f'**這是一段 {years:.1f} 年的歷史，不是長期驗證**：起點受 {limiter} '
+               f'可取得的最早行情（{starts[limiter]:%Y/%m}）限制'
+               + ('，碰不到 2008 年的金融海嘯' if first.year > 2008 else '')
+               + f'。期間成長池跌超過 {EPISODE_THRESHOLD:.0%} 的有 {len(episodes)} 次（見上方震盪表）。'
+               '未計稅、費用與交易成本。')
 
 
 def _render_comparison(principal, shape, transfer_rate):
@@ -789,12 +800,13 @@ def render_strategy():
         '- **成長池大漲時**，避免生活費過度膨脹，把多的錢儲備給未來。\n'
         '- **成長池大跌時**，避免生活費即刻銳減，讓生活保持穩定。')
 
-    # The preset leads because the picture below it names the holdings and their currency,
+    # The preset leads because the picture below it names the holdings it is drawn from,
     # and the backtest further down runs the same one -- one choice, not two that can differ.
     preset = st.radio(
         '配置', BACKTEST_PRESETS, index=BACKTEST_PRESETS.index(BACKTEST_DEFAULT),
         horizontal=True, key='retirement_backtest_preset',
-        help='都是同一條規則、同樣 90：10，只差成長池裝什麼。緩衝池是同一檔 00865B。')
+        help='都是同一條規則、同樣 90：10，只差成長池裝什麼。緩衝池都是 00865B，'
+             '只有退休9 用替身 SHV（同樣是美國短債，歷史較長）。')
     left, middle, right = st.columns([1.1, 1.1, 1.4])
     principal_wan = left.number_input(
         '本金（萬元）', min_value=100.0, max_value=100000.0, step=100.0,
@@ -825,9 +837,12 @@ def render_strategy():
         gain = monthly_execution_gain(plan['spend'])
         st.markdown(
             '**每年 1 月算一次**撥出額與今年的生活費總額，算完就固定，一整年不隨市場變動。'
-            '**動用分十二個月**，還沒動用的部分留在緩衝池裡繼續生息：以 00865B 實測年化 2.89% 估，'
-            f'比年初一次領出約多 **{_w(gain)}**／年（生活費的 {gain / plan["spend"]:.1%}）。'
-            '上面的回測圖跑的就是分月動用。')
+            '**動用分十二個月**，還沒動用的部分留在緩衝池裡繼續生息：以 00865B 實測年化 '
+            f'{BUFFER_YIELD:.2%} 估，比年初一次領出約多 **{_w(gain)}**／年'
+            f'（生活費的 {gain / plan["spend"]:.1%}）。'
+            + ('退休9 只是退休8 的長期模擬，實際持有的緩衝池仍是 00865B，所以用它的報酬估。'
+               if buffer_symbol(preset) != BUFFER_SYMBOL else '')
+            + '上面的回測圖跑的就是分月動用。')
         st.warning('**分月動用不等於每月重算。** 每個月只取出年初總額的十二分之一；'
                    '若每個月都重算「緩衝池的 25%」，一年會領走緩衝池的 96.8%（1 − 0.75¹²）。'
                    '**25% 是年度比率，不是月度比率。**')
