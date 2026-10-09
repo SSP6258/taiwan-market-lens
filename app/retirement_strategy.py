@@ -527,10 +527,11 @@ def income_chart(run, episodes=()):
     frame['總資產（萬）'] = frame['總資產'] / 10000
     # The axis reads in 千萬: at these sizes a column of five-digit 萬 is harder to scan.
     # Whole 千萬 ticks, unless the run never reaches two of them -- a smaller principal
-    # would otherwise be left with a lone 0 on the axis. The tooltip keeps 萬.
+    # would otherwise be left with a lone 0 on the axis. Tenths then need their own minimum
+    # step, or ticks every 0.05 print as 0.3, 0.3, 0.4, 0.4. The tooltip keeps 萬.
     frame['總資產（千萬）'] = frame['總資產'] / 10_000_000
     asset_ticks = ({'format': ',.0f', 'tickMinStep': 1} if frame['總資產（千萬）'].max() >= 2
-                   else {'format': ',.1f'})
+                   else {'format': ',.1f', 'tickMinStep': 0.1})
     frame['成長池（萬）'] = frame['成長池'] / 10000
     frame['緩衝池（萬）'] = frame['緩衝池'] / 10000
     frame['當月撥款（萬）'] = frame['當月撥款'] / 10000
