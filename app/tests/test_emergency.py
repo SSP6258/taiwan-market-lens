@@ -22,38 +22,47 @@ def test_the_mortgage_line_leads_and_says_it_has_a_deadline():
     eligibility closes at retirement. A page that buried either would be worse than
     silent: the reader would set up the facility they can always get, and miss the one
     they cannot."""
-    from emergency import PLAYBOOK
-    assert PLAYBOOK[0]['名稱'] == '理財型房貸', [p['名稱'] for p in PLAYBOOK]
-    assert '退休前' in PLAYBOOK[0]['關鍵']
-    assert '不逐日' in PLAYBOOK[0]['為什麼排這裡'], '沒有逐日評價才是它排第一的理由'
+    from emergency import BRIDGE
+    assert BRIDGE[0]['名稱'] == '理財型房貸', [p['名稱'] for p in BRIDGE]
+    assert '退休前' in BRIDGE[0]['關鍵']
+    assert '不逐日' in BRIDGE[0]['為什麼排這裡'], '沒有逐日評價才是它排第一的理由'
     # It leads, so its cost has to be stated on the same row rather than left to a footnote.
-    assert '住的地方' in PLAYBOOK[0]['代價']
+    assert '住的地方' in BRIDGE[0]['代價']
 
 
 def test_every_playbook_entry_states_what_it_costs():
-    """Four options with no cost column would read as four free lunches."""
-    from emergency import PLAYBOOK
-    assert len(PLAYBOOK) == 5
-    assert len({p['名稱'] for p in PLAYBOOK}) == 5
-    for entry in PLAYBOOK:
+    """Options with no cost column would read as free lunches."""
+    from emergency import BRIDGE, PERMANENT
+    names = [p['名稱'] for p in BRIDGE + PERMANENT]
+    assert len(names) == len(set(names)) == 5, names
+    for entry in BRIDGE + PERMANENT:
         for field in ('名稱', '關鍵', '為什麼排這裡', '代價'):
             assert entry[field].strip(), (entry['名稱'], field)
     # 質押 ranks second, and the reason it is not first belongs next to it.
-    assert PLAYBOOK[1]['名稱'] == '質押借款'
-    assert '跟著市場跌' in PLAYBOOK[1]['代價']
-    # 信貸 sits above 正2 for the same reason 質押 does -- it leaves the portfolio alone --
-    # and below 質押 because it costs more. Its own cost is the repayment shape.
-    assert PLAYBOOK[2]['名稱'] == '信用貸款'
-    assert '本息攤還' in PLAYBOOK[2]['代價']
-    assert PLAYBOOK[-1]['名稱'] == '直接賣成長池', '永遠可用的那個殿後'
+    assert BRIDGE[1]['名稱'] == '質押借款'
+    assert '跟著市場跌' in BRIDGE[1]['代價']
+    # 信貸 is last of the loans: no margin call is all it offers, and selling has that too.
+    assert BRIDGE[-1]['名稱'] == '信用貸款'
+    assert '本息攤還' in BRIDGE[-1]['代價']
+
+
+def test_money_that_is_not_coming_back_is_sold_for_not_borrowed():
+    """2026-10-10: a loan against money that is not coming back is repaid by selling the
+    growth pool anyway, later and with interest. So selling leads that path, 正2 follows
+    as a way of doing the same sale, and no loan appears in it."""
+    from emergency import BRIDGE, PERMANENT
+    assert PERMANENT[0]['名稱'] == '直接賣成長池'
+    assert '預設' in PERMANENT[0]['關鍵']
+    assert all('賣成長池' in p['名稱'] for p in PERMANENT), [p['名稱'] for p in PERMANENT]
+    assert any('正2' in p['名稱'] for p in PERMANENT[1:])
+    assert not any('賣' in p['名稱'] for p in BRIDGE), '過渡清單只放借款'
 
 
 def test_the_page_counts_its_own_playbook():
     """The heading said 四個 while the table showed five, the first time an entry was
-    added. Both counts are derived now, so the drift cannot come back."""
-    from emergency import PLAYBOOK, _numeral
-    assert _numeral(len(PLAYBOOK)) == '五'
-    assert _numeral(len(PLAYBOOK) - 1) == '四'
+    added. The count is derived now, so the drift cannot come back."""
+    from emergency import BRIDGE, _numeral
+    assert _numeral(len(BRIDGE)) == '三'
     # An unmapped count degrades to a digit rather than raising on a live page.
     assert _numeral(99) == '99'
 
@@ -61,7 +70,7 @@ def test_the_page_counts_its_own_playbook():
 def test_the_pledge_rates_are_quoted_not_assumed():
     """The project's 40-year study used 3%, which is below anything on offer. These are
     a broker's own figures, and they are per instrument -- a leveraged holding costs half
-    again as much to borrow against, which matters to anyone who took option 4 first."""
+    again as much to borrow against, which matters to anyone who took the 正2 route first."""
     from emergency import OBSERVED_RATES, OBSERVED_SOURCE
     rates = dict(OBSERVED_RATES)
     assert min(rates.values()) >= 0.04, '沒有一檔低到專案假設的 3%'

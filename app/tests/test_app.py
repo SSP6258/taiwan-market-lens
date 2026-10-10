@@ -561,8 +561,9 @@ def test_the_emergency_tab_renders_all_of_its_sections():
         app.run(timeout=60)
         assert not app.exception
         headings = [m.value for m in app.markdown if m.value.startswith("### ")]
-        # Not the numeral -- that is derived from PLAYBOOK and moves when one is added.
-        for section in ["先墊，再補", "錦囊，照這個順序試", "借錢時記得"]:
+        # Not the numeral -- that is derived from BRIDGE and moves when one is added.
+        for section in ["先墊，再補", "這筆錢之後會回來嗎", "會回來：借錢過渡", "借錢時記得",
+                        "不會回來：賣成長池"]:
             assert any(section in h for h in headings), (section, headings)
         # Why the refill matters, stated from the rule's own rates.
         assert any("重設" in i.value and "25 萬" in i.value for i in app.info)
