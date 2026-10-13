@@ -49,9 +49,10 @@ w, name = allocation_picker(st.session_state.chosen_named_symbols, str)
 st.number_input('金額', key='investment_amount_wan')
 """).run()
     assert not app.exception
-    assert app.session_state.chosen_named_symbols == ['0050.TW', '2330.TW', '2454.TW']
-    assert app.session_state.applied_weights == pytest.approx([1/3]*3)
-    assert app.session_state.investment_amount_wan == 1000
+    # 退休10 is the one applied on arrival (2026-10-12; 衝刺 before that).
+    assert app.session_state.chosen_named_symbols == ['009816.TW', '00662.TW', '00865B.TW']
+    assert app.session_state.applied_weights == pytest.approx([.5, .4, .1])
+    assert app.session_state.investment_amount_wan == 3000
     app.selectbox(key='portfolio_preset').select('退休1').run()
     assert not app.exception
     assert app.session_state.chosen_named_symbols == ['009816.TW', '00662.TW', '00984B.TWO', '00685L.TW']
@@ -146,9 +147,10 @@ def test_the_dropdown_says_which_presets_are_the_buffer_pool_rule():
 
 
 def test_marking_a_preset_did_not_cost_the_dropdown_what_it_already_said():
-    # 衝刺 is the one applied on arrival and every preset carries its sum; adding a third
+    # 退休10 is the one applied on arrival and every preset carries its sum; adding a third
     # mark must not have pushed either of them off the line.
-    assert allocation.preset_label('衝刺') == '衝刺（預設・1,000 萬）'
+    assert allocation.preset_label('退休10') == '退休10（預設・緩衝池・3,000 萬）'
+    assert allocation.preset_label('衝刺') == '衝刺（1,000 萬）'
     assert allocation.preset_label('退休1') == '退休1（3,000 萬）'
     assert allocation.preset_label('退休8') == '退休8（緩衝池・3,000 萬）'
 

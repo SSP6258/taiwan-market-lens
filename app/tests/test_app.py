@@ -26,7 +26,7 @@ def pick(app, kind, label):
 def new_app(with_preset=False):
     """Start with the patched DEFAULT_SYMBOLS rather than a preset.
 
-    preset_picker() applies 衝刺 on first load, replacing the selection with its own
+    preset_picker() applies 退休10 on first load, replacing the selection with its own
     three symbols. That is real behaviour, but it is not what most of these tests are
     about, so they opt out and choose their own symbols.
     test_preset_applies_on_first_load covers the preset itself.
@@ -203,8 +203,8 @@ def test_preset_applies_on_first_load():
     with patch("market.load_symbol", side_effect=fixture_history):
         app = new_app(with_preset=True).run(timeout=30)
         assert not app.exception
-        assert app.multiselect[0].value == ["0050.TW", "2330.TW", "2454.TW"]
-        assert app.session_state["investment_amount_wan"] == 1000.0
+        assert app.multiselect[0].value == ["009816.TW", "00662.TW", "00865B.TW"]
+        assert app.session_state["investment_amount_wan"] == 3000.0
         assert len(app.metric) == 3
         pick(app, "selectbox", "預設配置").select("退休1").run()
         assert not app.exception
@@ -516,9 +516,9 @@ def test_the_retirement_tab_draws_the_backtest_and_offers_the_rate():
         rate = pick(app, "slider", "每年從成長池撥出（%）")
         assert rate.value == 4.0, "the default has to be the rate the page explains"
         which = pick(app, "radio", "配置")
-        assert list(which.options) == ["退休5", "退休6", "退休7", "退休8", "退休9"]
-        # 退休5 has no history to run, so the one that can be looked at is the default.
-        assert which.value == "退休6"
+        assert list(which.options) == ["退休5", "退休6", "退休7", "退休8", "退休9", "退休10"]
+        # 退休10, the one held, has no history to run; 退休8 is it with 0050 for 009816.
+        assert which.value == "退休8"
         assert len(app.get("vega_lite_chart")) == 1, "the backtest chart never rendered"
         shown = {m.label: m.value for m in app.metric}
         assert "期末總資產" in shown and shown["期末總資產"].endswith("萬")

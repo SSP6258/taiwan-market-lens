@@ -41,14 +41,16 @@ POSTER = Path(__file__).resolve().parent.parent / 'analysis' / 'retirement5-orig
 ORIGINAL = '原始設計 100：12'
 PRESET = 'APP 預設 90：10'
 
-# Every preset that is this rule gets offered here, including the one a reader would
-# actually hold and that has no history to run: 009826 listed in July 2026. The others
+# Every preset that is this rule gets offered here, including the one actually held and
+# that has no history to run: 退休10's 009816 has prices only from 2026-01. The others
 # differ from it, and from each other, in the growth pool and nothing else -- and they
 # share the buffer, so they land on the same window and can be read against each other.
 # The set is the sidebar's, so the mark on the dropdown and the choices here cannot
 # come apart.
 BACKTEST_PRESETS = BUFFER_PRESETS
-BACKTEST_DEFAULT = '退休6'
+# 退休8 is the held 退休10 with 0050 for 009816, and it runs over the same window as the
+# rest -- the closest thing to the real holding that has a history.
+BACKTEST_DEFAULT = '退休8'
 BACKTEST_FROM = date(2008, 1, 1)
 
 # The buffer is a specific fund, not "whichever holding is smallest". Naming it is what
@@ -61,7 +63,7 @@ BUFFER_SYMBOLS = (BUFFER_SYMBOL, 'SHV')
 # What a reader has to know about the holding they just picked. Kept beside the choice
 # rather than in a footnote: the numbers underneath change completely with it.
 BACKTEST_NOTES = {
-    '退休5': ('**這是真的要持有的配置**，但 009826 於 2026-07-22 才上市，'
+    '退休5': ('成長池是**世界股票**（009826），但它於 2026-07-22 才上市，'
              '沒有足夠長的歷史可以跑這條規則 —— 其餘幾個就是為此存在的替身。'),
     '退休6': ('成長池是**全世界股票**（VT），以美元計價、自動換算台幣，'
              '所以報酬含匯率變動。這是退休5 在資產類別上最接近的替身。'),
@@ -82,7 +84,8 @@ BACKTEST_NOTES = {
              '而這段期間是半導體與 AI 的超級循環，兩邊都吃到同一波。'
              '**成長池內部沒有再平衡**：實測 0050 佔成長池的比例由 55.6% 漂到 66.5%，'
              '所以「50：40」是起始條件，不是長期會維持的東西 —— '
-             '這與第四十六次評估「成長池拆成世界＋台股」時記下的同一個問題。'),
+             '這與第四十六次評估「成長池拆成世界＋台股」時記下的同一個問題。\n\n'
+             '**退休10（實際要持有的）就是把這裡的 0050 換成 009816**，兩檔日報酬相關 0.97。'),
     '退休9': ('**這是退休8 的長期模擬，不是另一個配置。** 00662 換成 QQQ、00865B 換成 SHV，'
              '兩者都換算成台幣。回測由 2009-01 開始 —— 卡在 Yahoo 的 0050 價格只到 2009-01-02，'
              '所以**碰不到 2008 年的金融海嘯**，但涵蓋 2011、2015、2018、2020、2022。\n\n'
@@ -91,6 +94,13 @@ BACKTEST_NOTES = {
              '（2016-07 起，月報酬相關 0.93）；SHV 每年約比 00865B 高 0.3 個百分點。'
              '**替身的費用較低，所以這裡的數字略偏樂觀。**\n\n'
              '成長池押在台積電與美國科技股的問題與退休8 相同，這 17 年同樣是它們表現特別好的一段。'),
+    '退休10': ('**這是實際要持有的配置**：退休8 的 0050 換成 009816（凱基台灣TOP50）。'
+              '009816 在 Yahoo 的價格只從 2026-01 開始，**歷史不夠跑這條規則** —— '
+              '要看它走過行情，改選**退休8**（同一段期間）或**退休9**（從 2009 年起）。\n\n'
+              '**兩檔像但不相同**（2026-01 至 2026-10 實測）：日報酬相關 0.97，'
+              '但年化追蹤差異 7.5%，同期 009816 +68.9%、0050 +59.9%。'
+              '**009816 不配息**，這正好配合這條規則：生活費本來就靠每年賣出成長池取得，'
+              '不配息就不會產生股利所得稅與二代健保補充保費（單筆股利 2 萬元以上扣 2.11%）。'),
 }
 
 
@@ -145,12 +155,12 @@ def monthly_execution_gain(spend, annual_yield=BUFFER_YIELD):
 
 
 # What each holding is, in the words the diagram prints under its code, and which currency
-# a NT$ holder is exposed to through it. Only 0050 is a Taiwan asset: the others are listed
+# a NT$ holder is exposed to through it. Only 0050 and 009816 are Taiwan assets: the others are listed
 # here or trade in dollars, but hold foreign assets unhedged, so they move with the dollar.
 HOLDING_NAMES = {'0050.TW': '台灣50', '00662.TW': '那斯達克100', 'VT': '全世界股票',
-                 '009826.TW': '世界股票', BUFFER_SYMBOL: '美國短債',
+                 '009826.TW': '世界股票', '009816.TW': '台灣TOP50', BUFFER_SYMBOL: '美國短債',
                  'QQQ': '那斯達克100', 'SHV': '美國短債'}
-TWD_HOLDINGS = {'0050.TW'}
+TWD_HOLDINGS = {'0050.TW', '009816.TW'}
 
 _DIAGRAM_CSS = """<style>
 .rp{--g:#3E9C86;--b:#D2963F;--w:#7F9BBA;--twd:#C8604E;--usd:#4F7FB5;

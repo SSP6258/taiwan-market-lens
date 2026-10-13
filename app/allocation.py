@@ -32,13 +32,21 @@ PRESETS = {
     # 0050's Yahoo history is now the limit, and it starts after 2008 -- the crash is out of reach.
     # Not a holding anyone should buy instead -- a longer history for the one they hold.
     '退休9': {'weights': {'0050.TW': 50.0, 'QQQ': 40.0, 'SHV': 10.0}, 'amount_wan': 3000.0},
+    # The one actually held (the user's choice, 2026-10-12): 退休8 with 009816 in 0050's
+    # place. 009816's Yahoo history starts 2026-01, too short to run the rule over, so
+    # 退休8 (same window as the rest) and 退休9 (back to 2009) are its stand-ins.
+    '退休10': {'weights': {'009816.TW': 50.0, '00662.TW': 40.0, '00865B.TW': 10.0},
+               'amount_wan': 3000.0},
 }
+
+# The preset applied when the app opens, and the one the dropdown marks 預設.
+DEFAULT_PRESET = '退休10'
 
 # The presets that are the buffer-pool rule rather than a basket held to its opening
 # weights. The 緩衝池退休法 page offers exactly this set to backtest, so it reads the
 # list from here instead of keeping a second copy -- the two drifting apart would mean
 # the sidebar marks one thing and the page runs another.
-BUFFER_PRESETS = ('退休5', '退休6', '退休7', '退休8', '退休9')
+BUFFER_PRESETS = ('退休5', '退休6', '退休7', '退休8', '退休9', '退休10')
 
 
 def apply_preset():
@@ -59,7 +67,7 @@ def apply_preset():
 
 def preset_label(name):
     """The dropdown line: the one applied on arrival, the buffer-pool rule, the sum."""
-    marks = ['預設'] if name == '衝刺' else []
+    marks = ['預設'] if name == DEFAULT_PRESET else []
     if name in BUFFER_PRESETS:
         marks.append('緩衝池')
     marks.append(f"{PRESETS[name]['amount_wan']:,.0f} 萬")
@@ -68,7 +76,7 @@ def preset_label(name):
 
 def preset_picker():
     if 'portfolio_presets_initialized' not in st.session_state:
-        st.session_state.portfolio_preset = '衝刺'
+        st.session_state.portfolio_preset = DEFAULT_PRESET
         apply_preset()
         st.session_state.portfolio_presets_initialized = True
     st.selectbox('預設配置', list(PRESETS), key='portfolio_preset',
