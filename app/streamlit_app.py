@@ -319,9 +319,18 @@ with comparison_tab:
         else:
             missing = ", ".join(sorted(set(weights.index) - set(returns.columns)))
             st.caption(f"部分標的沒有行情（{missing}），比重無法對應目前圖上的標的，暫不繪製組合走勢。")
+        # The quote beside each reading is the day's close whatever the basis: an adjusted
+        # price was never traded. Already in the cache, so this is a lookup, not a fetch.
+        if field == "Close":
+            closes = aligned
+        else:
+            quoted = load_frame(list(aligned.columns), start, end, "Close")[0]
+            closes = pd.concat(quoted, axis=1).reindex(aligned.index) if quoted else None
         render_chart(chart_data, {s: label(s) if s != emphasis else s for s in chart_data.columns},
                      {s: colors[slots[s]] if s != emphasis else BLEND_COLOR for s in chart_data.columns},
-                     view, emphasis)
+                     view, emphasis, closes=closes)
+        st.caption("右側座標顯示各線最新的漲跌幅與收盤價；游標停在某天時，點旁與圖例顯示該日的漲跌幅與收盤價（未還原）。美元計價標的以當日匯率換算台幣；"
+                   "分割前的價格已換成現在的單位。組合沒有單一價格，只顯示漲跌幅。")
 
     st.subheader("報酬與風險")
     st.caption("手機可左右滑動表格查看所有欄位，也可下載 CSV。")

@@ -13,17 +13,19 @@ from lightweight_chart import COLORS, render_chart
 from market import compare_prices, load_frame
 from ui import period_banner, unit_notice
 
-CURRENT = '目前配置'
+# Named plainly: the sidebar's own label for it (自訂配置組合, or a preset's name) made the
+# longest entry on the chart's axis, and the preset it may match is already listed by name.
+CURRENT = '自訂'
 # Cards per row on the composition strip; see render_strategies for why it is not one row.
 PER_ROW = 3
 
 
-def allocation_table(current_weights=None, current_name=None):
+def allocation_table(current_weights=None):
     """The shipped presets, plus whatever the sidebar is currently set to."""
     table = {name: pd.Series({s: w / 100 for s, w in config['weights'].items()})
              for name, config in PRESETS.items()}
     if current_weights is not None and len(current_weights):
-        table[f'{CURRENT}（{current_name}）'] = current_weights
+        table[CURRENT] = current_weights
     return table
 
 
@@ -79,7 +81,7 @@ def composition_rows(weights, label):
 def render_strategies(label, basis, start, end, weights=None, portfolio_name='等權重組合'):
     st.subheader('配置比較')
     st.caption('STRATEGY LAB · 同一段期間、同一個起點，比較不同配置的走勢')
-    table = allocation_table(weights, portfolio_name)
+    table = allocation_table(weights)
     chosen = st.multiselect('要比較的配置', list(table), default=list(table),
                             help='每個配置依其比重買進後持有、不再平衡。')
     if len(chosen) < 1:
@@ -116,9 +118,10 @@ def render_strategies(label, basis, start, end, weights=None, portfolio_name='�
     chart_data = drawdown if view == '歷史回撤' else returns
     render_chart(chart_data, {c: c for c in chart_data.columns},
                  {c: COLORS[i % len(COLORS)] for i, c in enumerate(chart_data.columns)}, view,
-                 key='strategy_chart')
+                 key='strategy_chart', axis_names=True)
     st.subheader('各配置的內容')
-    st.caption('依起始比重買進後持有、不再平衡。比重顯示到小數一位，'
+    st.caption(f'括號內為共同期間（{first:%Y/%m/%d} — {last:%Y/%m/%d}）的累積漲跌幅，與上圖右側相同。'
+               '依起始比重買進後持有、不再平衡。比重顯示到小數一位，'
                '等分的配置（如衝刺的三分之一）相加會是 99.9%，實際計算用未四捨五入的值。')
     from ui import allocation_card
     # Three across, wrapping. Six cards fit the width only by breaking the holding names one
@@ -128,7 +131,10 @@ def render_strategies(label, basis, start, end, weights=None, portfolio_name='�
         # Pad the last row so two cards do not stretch to half the page each.
         for column, name in zip(st.columns(PER_ROW, border=True), batch):
             with column:
-                allocation_card(name, composition_rows(allocations[name], label))
+                # The cumulative return whichever view the chart shows: a drawdown beside a
+                # name reads as how the configuration did, which it is not.
+                allocation_card(f'{name}（{returns[name].iloc[-1]:+.1f}%）',
+                                composition_rows(allocations[name], label))
     st.subheader('配置的報酬與風險')
     st.dataframe(stats.round(1).rename_axis('配置').reset_index(), hide_index=True, width='stretch',
                  column_config={c: st.column_config.NumberColumn(c, format='%.1f%%') for c in stats.columns})
@@ -145,5 +151,5 @@ def render_strategies(label, basis, start, end, weights=None, portfolio_name='�
         - 報酬、回撤、年化報酬與年化波動的定義與「行情比較」頁完全相同。
           **共同期間不足 365 天時，年化報酬整欄留空**，這是刻意的：把幾個月的報酬
           外推成年化會誇大差距，而配置之間的差距正是這一頁要看的東西。
-        - 配置的比重固定為設定值；`目前配置` 取自側邊欄，會隨你的調整而變。
+        - 配置的比重固定為設定值；`自訂` 取自側邊欄，會隨你的調整而變。
         """)

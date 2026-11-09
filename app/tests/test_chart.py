@@ -42,3 +42,32 @@ def test_the_blend_is_drawn_forward_and_the_holdings_back():
     assert with_blend['a']['line'] == 'rgba(59,158,255,0.42)' and with_blend['a']['width'] == 2
     # The legend still carries the identity colour; only the canvas recedes.
     assert with_blend['a']['color'] == '#3B9EFF'
+
+
+def test_each_holding_carries_its_close_and_the_blend_none():
+    """The hover shows the day's quote beside the reading. The blend has no price of its
+    own, so it must not borrow one; a holding missing from the closes shows none either."""
+    from lightweight_chart import chart_series
+    frame = _frame()
+    closes = pd.DataFrame({'a': [10., 10.1, 10.2]}, index=frame.index)
+    series = {s['name']: s for s in chart_series(
+        frame, {c: c for c in frame.columns}, {'a': '#3B9EFF', 'blend': '#FFFFFF'}, 'blend', closes)}
+    assert series['a']['prices'] == {'2026-01-01': 10., '2026-01-02': 10.1, '2026-01-03': 10.2}
+    assert series['blend']['prices'] is None
+
+
+def test_without_closes_no_series_claims_a_price():
+    assert all(s['prices'] is None for s in _series(None).values())
+
+
+def test_only_a_chart_that_asks_for_it_names_its_axis_readings(monkeypatch):
+    """The configurations' axis readings carry their names; the holdings' do not, since a
+    ticker is already in the legend and a name would crowd the column on a phone."""
+    import lightweight_chart
+    sent = []
+    monkeypatch.setattr(lightweight_chart, '_component', lambda **kw: sent.append(kw['data']))
+    frame = _frame()
+    for named in (False, True):
+        lightweight_chart.render_chart(frame, {c: c for c in frame.columns},
+                                       {'a': '#3B9EFF', 'blend': '#FFFFFF'}, '累積漲跌幅', axis_names=named)
+    assert [d['axis_names'] for d in sent] == [False, True]

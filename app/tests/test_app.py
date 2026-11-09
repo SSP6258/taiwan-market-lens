@@ -1,3 +1,4 @@
+import re
 import inspect
 from pathlib import Path
 from unittest.mock import patch
@@ -373,13 +374,14 @@ def test_strategy_tab_compares_configurations_over_one_window():
         assert not app.exception
         assert any(h.value == "配置比較" for h in app.subheader)
         chosen = list(pick(app, "multiselect", "要比較的配置").value)
-        assert "衝刺" in chosen and any(v.startswith("目前配置") for v in chosen)
+        assert "衝刺" in chosen and "自訂" in chosen
         blocks = "".join(str(h.body) for h in app.get("html"))
         # One period banner for the whole comparison, not one per configuration.
         assert blocks.count("共同期間") == 1
         # Every chosen configuration gets its own card, with its holdings and weights.
+        # Each title carries the configuration's return over the shared window.
         for configuration in chosen:
-            assert configuration in blocks
+            assert re.search(re.escape(configuration) + r"（[+-]\d+\.\d%）", blocks), configuration
         assert "00984B" in blocks and "50%" in blocks
         # run() returns the next app; the previous one's elements no longer resolve.
         app = pick(app, "segmented_control", "圖表指標").set_value("歷史回撤").run()
