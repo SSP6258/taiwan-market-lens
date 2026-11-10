@@ -374,7 +374,12 @@ def test_strategy_tab_compares_configurations_over_one_window():
         assert not app.exception
         assert any(h.value == "配置比較" for h in app.subheader)
         chosen = list(pick(app, "multiselect", "要比較的配置").value)
-        assert "衝刺" in chosen and "自訂" in chosen
+        assert "退休10" in chosen and "退休1" in chosen
+        # 衝刺, 退休2-5, 退休9 and 自訂 are offered but not ticked on arrival.
+        unticked = {"衝刺", "退休2", "退休3", "退休4", "退休5", "退休9", "自訂"}
+        offered = pick(app, "multiselect", "要比較的配置").options
+        assert unticked <= set(offered)
+        assert not unticked & set(chosen)
         blocks = "".join(str(h.body) for h in app.get("html"))
         # One period banner for the whole comparison, not one per configuration.
         assert blocks.count("共同期間") == 1
@@ -382,7 +387,7 @@ def test_strategy_tab_compares_configurations_over_one_window():
         # Each title carries the configuration's return over the shared window.
         for configuration in chosen:
             assert re.search(re.escape(configuration) + r"（[+-]\d+\.\d%）", blocks), configuration
-        assert "00984B" in blocks and "50%" in blocks
+        assert "0050" in blocks and "90%" in blocks
         # run() returns the next app; the previous one's elements no longer resolve.
         app = pick(app, "segmented_control", "圖表指標").set_value("歷史回撤").run()
         assert not app.exception

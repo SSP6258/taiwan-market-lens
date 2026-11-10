@@ -18,6 +18,13 @@ from ui import period_banner, unit_notice
 CURRENT = '自訂'
 # Cards per row on the composition strip; see render_strategies for why it is not one row.
 PER_ROW = 3
+# Offered but not ticked on arrival (the user's call, 2026-11-09 and -10): with a dozen
+# configurations the chart and its axis readings crowd. 衝刺 and 退休2-4 are not being
+# weighed any more (退休1 stays ticked, as the bond-heavy one to compare against); 退休5 has
+# only a few months of history and 退休9 is 退休8 on US
+# stand-ins. 自訂 is usually one of the presets again (退休10 today), so it would draw a
+# second line on top of one already there. They stay in the list to be added back by hand.
+NOT_PRESELECTED = ('衝刺', '退休2', '退休3', '退休4', '退休5', '退休9', CURRENT)
 
 
 def allocation_table(current_weights=None):
@@ -82,7 +89,8 @@ def render_strategies(label, basis, start, end, weights=None, portfolio_name='�
     st.subheader('配置比較')
     st.caption('STRATEGY LAB · 同一段期間、同一個起點，比較不同配置的走勢')
     table = allocation_table(weights)
-    chosen = st.multiselect('要比較的配置', list(table), default=list(table),
+    chosen = st.multiselect('要比較的配置', list(table),
+                            default=[name for name in table if name not in NOT_PRESELECTED],
                             help='每個配置依其比重買進後持有、不再平衡。')
     if len(chosen) < 1:
         st.info('請至少選擇一個配置。')
