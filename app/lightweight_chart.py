@@ -53,6 +53,10 @@ export default function({parentElement, data}) {
   const money = value => value.toLocaleString('zh-TW',{minimumFractionDigits:value>=1000?0:2,maximumFractionDigits:value>=1000?0:2});
   const blank = () => '';
   const day = t => typeof t==='string' ? t : `${t.year}-${String(t.month).padStart(2,'0')}-${String(t.day).padStart(2,'0')}`;
+  const slashed = t => {
+    const [y,m,d] = (typeof t==='number' ? new Date(t*1000).toISOString().slice(0,10) : day(t)).split('-');
+    return `${y}/${+m}/${+d}`;
+  };
   const chart = L.createChart(host, {
     autoSize:true,
     handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:false},
@@ -64,7 +68,9 @@ export default function({parentElement, data}) {
     rightPriceScale:{borderColor:'#334155',scaleMargins:{top:.12,bottom:.12},minimumWidth:96},
     timeScale:{borderColor:'#334155',rightOffset:1,fixLeftEdge:true,fixRightEdge:true,timeVisible:false},
     crosshair:{mode:L.CrosshairMode.Normal,vertLine:{color:'#64748B',style:2,labelBackgroundColor:'#334155'},horzLine:{color:'#64748B',style:2,labelVisible:false}},
-    localization:{locale:'zh-TW',priceFormatter:blank},
+    // The crosshair's date as people here write one, 2026/5/15, rather than the library's
+    // zh-TW default of 15 5月 '26.
+    localization:{locale:'zh-TW',priceFormatter:blank,timeFormatter:slashed},
   });
   // Two readings. Beside each point under the cursor, so a reading never needs a glance down
   // to the legend; and on the right axis, each line's latest, at that line's height. Both
