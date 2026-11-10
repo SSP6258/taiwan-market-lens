@@ -379,6 +379,15 @@ git remote set-url origin git@github.com:SSP6258/taiwan-market-lens.git
 但**換一台機器、或重新 clone，remote 又會是 HTTPS** —— 症狀會一模一樣地回來。
 判斷方式：`git ls-remote` 通、`git push` 卡住 → 是認證不是網路。
 
+**2026-11-10 在 VPS（KVM2，`srv2047262`）又撞到一次**：remote 是 HTTPS，這台也**沒有** `id_ed25519_github`
+（只有 1Panel 自己的 `id_ed25519_1panel`，不要拿它推 GitHub）。處理方式：
+在這台產生 `~/.ssh/id_ed25519_github`，使用者把公鑰加成 repo 的 **Deploy key（勾 Allow write access）**，
+`ssh -T` 回的是 `Hi SSP6258/taiwan-market-lens!`（Deploy key 的格式，不是帳號名）。
+`~/.ssh/config` 已指定 `Host github.com` 用這把金鑰，remote 已改 SSH。
+**這把金鑰只能動這個 repo**；要撤銷就到 repo 的 Settings → Deploy keys 刪掉 `fire-app VPS`。
+GitHub 介面找不到「Add deploy key」時，直接開 `https://github.com/SSP6258/taiwan-market-lens/settings/keys/new`。
+**沒有做的事**：沒有產生或保存任何 token，也沒有用 1Panel 的金鑰。
+
 **10. Linux 開發機上「跑不動測試」是可以解決的，不要接受它。**
 2026-09-22 接手時的狀態：`python3 -m pip` 沒有、`ensurepip` 沒有、
 `.venv/` 是 Windows 的（`Scripts/`、`Lib/`），於是**連續兩批改動都是在沒跑過測試的情況下交出去的**。
