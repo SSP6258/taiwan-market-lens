@@ -225,10 +225,10 @@ def test_a_trough_inside_a_month_survives_daily_sampling():
 
 
 def test_an_episode_is_only_named_when_its_trough_is_one_we_know():
-    known = next(iter(EPISODE_NAMES))
-    index = pd.bdate_range(f'{known[0]}-{known[1]:02d}-01', periods=6)
+    first, _, name = EPISODE_NAMES[0]
+    index = pd.bdate_range(f'{first}-01', periods=6)
     named = drawdown_episodes(pd.Series([100.0, 100.0, 70.0, 80.0, 95.0, 101.0], index=index))
-    assert named[0]['名稱'] == EPISODE_NAMES[known]
+    assert named[0]['名稱'] == name
     plain = drawdown_episodes(_fall([100, 100, 70, 80, 95, 101], start='2017-03-01'))
     assert plain[0]['名稱'] is None, '認不出來的就該留白，不是編一個'
 
@@ -577,3 +577,29 @@ def test_the_long_run_stand_in_splits_like_the_preset_it_models():
     assert buffer_symbol("退休8") == BUFFER_SYMBOL
     assert pool_split("退休9")[0].keys() == {"0050.TW", "QQQ"}
     assert list(PRESETS["退休9"]["weights"].values()) == list(PRESETS["退休8"]["weights"].values())
+
+
+def test_one_fall_keeps_its_name_whichever_month_it_bottoms_in():
+    """2022's fall bottomed in June for world stocks and October for Taiwan; keyed by a
+    single month, only one of them was named and the other read as a bare 回撤."""
+    from retirement_strategy import episode_name
+    for day in ('2022-06-16', '2022-10-25', '2022-11-03'):
+        assert episode_name(pd.Timestamp(day)) == '2022 通膨升息空頭'
+    assert episode_name(pd.Timestamp('2026-07-30')) is None
+
+
+def test_neighbouring_falls_print_on_different_rows():
+    """Falls a year apart overlapped as one smear of red text on a phone."""
+    from retirement_strategy import episode_labels
+    first, last = pd.Timestamp('2020-01-01'), pd.Timestamp('2026-11-30')
+    def fall(peak, recovered, name):
+        return {'高點': pd.Timestamp(peak), '收復': recovered and pd.Timestamp(recovered),
+                '跌幅': -0.2, '名稱': name}
+    labels = episode_labels([fall('2020-02-17', '2020-06-24', 'COVID-19 疫情崩盤'),
+                             fall('2024-07-11', '2024-11-11', '2024 夏季全球急跌'),
+                             fall('2025-02-18', '2025-07-31', '2025 關稅衝擊'),
+                             fall('2026-10-06', None, '2026 美國期中選舉')], first, last)
+    # Two rows, alternating in date order: neighbours never share one.
+    assert list(labels['列高']) == [0, 15, 0, 15]
+    # The last one is too close to the edge to start at its peak, so it ends there instead.
+    assert labels.iloc[-1]['對齊'] == 'right'

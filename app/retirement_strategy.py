@@ -481,12 +481,29 @@ SHADE_COLOUR = '#FF5263'
 # These names are the one thing on the chart that does not come out of the prices. They are
 # general market knowledge, and the page says so -- an episode nobody here can name keeps
 # its dates and its depth and goes unlabelled rather than being given a plausible story.
-EPISODE_NAMES = {
-    (2020, 3): 'COVID-19 疫情崩盤',
-    (2022, 6): '2022 通膨升息空頭',
-    (2024, 8): '2024 夏季全球急跌',
-    (2025, 4): '2025 關稅衝擊',
-}
+# Keyed by the span the trough falls in, not one month: the same fall bottoms in different
+# months for different holdings (2022's: June for world stocks, October for Taiwan, November
+# for the Nasdaq stand-in), and an episode still open can make a new low next month.
+EPISODE_NAMES = (
+    ('2008-09', '2009-03', '2008 全球金融海嘯'),
+    ('2010-04', '2010-07', '2010 歐債危機'),
+    ('2011-08', '2011-12', '2011 歐債危機與美債降評'),
+    ('2015-08', '2016-02', '2015 中國股災與人民幣貶值'),
+    ('2018-10', '2019-01', '2018 升息與美中貿易戰'),
+    ('2020-02', '2020-04', 'COVID-19 疫情崩盤'),
+    ('2022-01', '2022-11', '2022 通膨升息空頭'),
+    ('2024-07', '2024-09', '2024 夏季全球急跌'),
+    ('2025-03', '2025-05', '2025 關稅衝擊'),
+    # Still open when named (2026-11-11). The user's call: the fall came the week of the US
+    # midterms, alongside doubts about AI spending.
+    ('2026-10', '2026-12', '2026 美國期中選舉'),
+)
+
+
+def episode_name(trough):
+    """The name of the span `trough` falls in, or None: an unknown fall stays unnamed."""
+    month = trough.strftime('%Y-%m')
+    return next((name for first, last, name in EPISODE_NAMES if first <= month <= last), None)
 
 
 def drawdown_episodes(prices, threshold=EPISODE_THRESHOLD):
@@ -520,7 +537,7 @@ def drawdown_episodes(prices, threshold=EPISODE_THRESHOLD):
         trough = segment.idxmin()
         found.append({'高點': peak, '谷底': trough, '收復': recovered,
                       '跌幅': float(segment.min()),
-                      '名稱': EPISODE_NAMES.get((trough.year, trough.month))})
+                      '名稱': episode_name(trough)})
     return found
 
 
@@ -579,13 +596,58 @@ def income_chart(run, episodes=()):
                                       **asset_ticks)),
         tooltip=tooltip))
     if marked:
-        names = pd.DataFrame([
-            {'起': e['高點'], '事件': (e['名稱'] or '回撤') + f" {e['跌幅']:.0%}"}
-            for e in marked])
-        layers.append(alt.Chart(names).mark_text(
-            align='left', baseline='top', dx=4, dy=2, fontSize=11, color=SHADE_COLOUR
-        ).encode(x=alt.X('起:T', title=None), y=alt.value(0), text='事件:N'))
+        names = episode_labels(marked, run.index[0], run.index[-1])
+        # Two layers because mark_text cannot take its alignment from the data: a label that
+        # would run off the right edge ends at its episode's end instead of starting there.
+        for side, at, dx in (('left', '起:T', 4), ('right', '迄:T', -4)):
+            rows = names[names['對齊'] == side]
+            if len(rows):
+                # `width` is the chart's own signal, so a phone gets the depth alone and a wider
+                # screen the full name, from the one chart.
+                layers.append(alt.Chart(rows).mark_text(
+                    align=side, baseline='top', dx=dx, dy=2, fontSize=LABEL_SIZE, color=SHADE_COLOUR
+                ).transform_calculate(
+                    標籤=f"width < {SHORT_LABELS_BELOW} ? datum['短'] : datum['事件']"
+                ).encode(x=alt.X(at, title=None), y=alt.Y('列高:Q', scale=None, axis=None), text='標籤:N'))
     return alt.layer(*layers).resolve_scale(y='independent').properties(height=400)
+
+
+# The labels are placed before the chart knows its width, so the right-edge check assumes the
+# narrowest it is drawn at: a phone, where the plot is about this many pixels across.
+NARROWEST_PLOT = 300
+# Below this plot width five full names cannot fit in two rows, so the labels drop to depths:
+# measured 2026-11-11, a tablet (about 660px of plot) overlapped and a desktop (about 770) did not.
+SHORT_LABELS_BELOW = 720
+LABEL_SIZE = 11
+LABEL_ROW = 15
+
+
+def label_width(text, size=LABEL_SIZE):
+    """Pixels a label takes: a CJK character is about a full em, everything else about half."""
+    return sum(size if ord(c) > 255 else size * .58 for c in text) + 6
+
+
+def episode_labels(episodes, first, last, plot=NARROWEST_PLOT):
+    """Each label's text, row and alignment. Two rows, alternating in date order (the user's
+    call, 2026-11-11): neighbouring falls never share a row, and the labels stay a band at
+    the top instead of stepping down over the bars.
+
+    The last one, if too close to the right edge to fit, ends at its episode's end instead of
+    starting at its peak, so the axis does not cut it off. `短` is the depth alone, for a
+    chart too narrow for the names (the shaded span's tooltip still names it).
+    """
+    span = max((last - first).total_seconds(), 1.0)
+    to_px = lambda when: (when - first).total_seconds() / span * plot
+    out = []
+    ordered = sorted(episodes, key=lambda e: e['高點'])
+    for i, e in enumerate(ordered):
+        text = (e['名稱'] or '回撤') + f" {e['跌幅']:.0%}"
+        # Only the last can run off the edge: every other one has a later fall after it.
+        side = ('right' if i == len(ordered) - 1 and to_px(e['高點']) + 4 + label_width(text) > plot
+                else 'left')
+        out.append({'起': e['高點'], '迄': e['收復'] or last, '事件': text,
+                    '短': f"{e['跌幅']:.0%}", '列高': (i % 2) * LABEL_ROW, '對齊': side})
+    return pd.DataFrame(out)
 
 def worst_fall_without_the_currency(prices, rates):
     """A NT$-quoted fund's worst fall, and what the same span did with the rate divided out.
