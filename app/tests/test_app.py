@@ -269,7 +269,7 @@ def test_risk_tabs_group_and_default_to_correlation():
     with patch("market.load_symbol", side_effect=fixture_history):
         app = new_app().run(timeout=30)
         assert [t.label for t in app.tabs] == [
-            "行情比較", "配置比較", "風險分析", "投資報酬", "AI 深度解讀", "緩衝池退休法", "緊急支出", "關於與使用說明"]
+            "行情比較", "配置比較", "風險分析", "投資報酬", "AI 深度解讀", "報酬順序風險", "緩衝池退休法", "緊急支出", "關於與使用說明"]
         app.session_state["analysis_tabs"] = "風險分析"
         app = app.run(timeout=30)
         assert not app.exception
@@ -590,3 +590,27 @@ def test_the_emergency_tab_is_a_method_page_not_a_calculator():
         widgets = [w for kind in ("number_input", "slider", "text_input", "selectbox", "radio")
                    for w in getattr(app, kind) if str(w.key or "").startswith("emergency_")]
         assert not widgets, [w.key for w in widgets]
+
+
+def test_sequence_tab_ranks_the_configurations_with_enough_history():
+    """Real prices only: a configuration holding a fund too young to have five whole years is
+    left out and named, and the page says which results are history and which are not."""
+    def young(symbol, start, end):
+        frame, stamp = fixture_history(symbol, start, end)
+        if symbol in ("009816.TW", "009826.TW", "00984B.TWO"):
+            frame = frame.loc["2026-01-23":]
+        return frame, stamp
+    with patch("market.load_symbol", side_effect=young):
+        app = new_app().run(timeout=30)
+        app.session_state["analysis_tabs"] = "報酬順序風險"
+        app = app.run(timeout=90)
+        assert not app.exception
+        assert any(h.value == "報酬順序風險" for h in app.subheader)
+        ranked = next(d.value for d in app.dataframe if "順序差距（最好比最差多）" in d.value.columns)
+        assert set(ranked["配置"]) == {"衝刺", "退休6", "退休7", "退休8", "退休9"}
+        assert list(ranked["排名"]) == list(range(1, 6))
+        text = " ".join(str(c.value) for c in app.caption) + " ".join(str(m.value) for m in app.markdown)
+        assert "退休10" in text and "009816" in text
+        # st.badge renders as Markdown (":orange-badge[...]").
+        badges = " ".join(str(m.value) for m in app.markdown if "-badge[" in str(m.value))
+        assert "人為排列（非真實歷史）" in badges and "badge[真實歷史]" in badges

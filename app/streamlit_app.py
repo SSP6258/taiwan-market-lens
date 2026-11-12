@@ -24,7 +24,7 @@ import sys
 _RELOAD_ORDER = ["ui", "securities", "market", "lightweight_chart", "correlation",
                  "allocation", "module_compat", "sharpe_analysis", "beta_analysis",
                  "investment", "insights", "strategies", "retirement_strategy",
-                 "emergency"]
+                 "sequence_risk", "emergency"]
 
 
 def _replaced_since_import(module):
@@ -78,7 +78,7 @@ st.write("同一起點，看見不同走勢。比較股票與 ETF 的歷史報�
 # Reserved above the tab bar so the period shows once, on every tab, and is filled
 # after the data is loaded below.
 period_slot = st.empty()
-comparison_tab, strategy_tab, risk_tab, investment_tab, ai_tab, retirement_tab, emergency_tab, about_tab = st.tabs(["行情比較", "配置比較", "風險分析", "投資報酬", "AI 深度解讀", "緩衝池退休法", "緊急支出", "關於與使用說明"], on_change="rerun", key="analysis_tabs")
+comparison_tab, strategy_tab, risk_tab, investment_tab, ai_tab, sequence_tab, retirement_tab, emergency_tab, about_tab = st.tabs(["行情比較", "配置比較", "風險分析", "投資報酬", "AI 深度解讀", "報酬順序風險", "緩衝池退休法", "緊急支出", "關於與使用說明"], on_change="rerun", key="analysis_tabs")
 with about_tab:
     st.markdown(Path(__file__).with_name("about.md").read_text(encoding="utf-8"))
     st.subheader("資料處理流程")
@@ -397,6 +397,12 @@ if investment_tab.open:
                 importlib.invalidate_caches()
                 importlib.reload(investment)
             investment.render_investment(prices, weights, amount, label, basis)
+
+if sequence_tab.open:
+    with sequence_tab:
+        # Its own history for every preset, fetched here; the sidebar only supplies 自訂.
+        from sequence_risk import render_sequence_risk
+        render_sequence_risk(weights)
 
 if retirement_tab.open:
     with retirement_tab:
