@@ -5,6 +5,11 @@ Two experiments from 《投資 10 年就退休》 ch.3. Rearranging one set of r
 shows how much the order alone moves the outcome, and it is not something that happened.
 Starting the same retirement in different real years is history. The page labels each.
 
+Only the buffer-pool rule (the user's call, 2026-11-13): it moves sequence risk off the
+assets and onto the income, so the income is what is measured. The book's fixed 4% was
+dropped -- it never reached a bad enough stretch in these years to show its weakness, and
+compared on different measures the two only confused each other.
+
 Only real ETF prices, and only configurations with MIN_YEARS whole calendar years: the
 user's call (2026-11-12), so nothing here leans on a stand-in index. Configurations are
 ranked over the years they all share, so none is credited for a stretch of market another
@@ -12,7 +17,6 @@ did not have to live through.
 """
 from datetime import date, datetime
 from itertools import permutations
-from math import factorial
 from zoneinfo import ZoneInfo
 
 import altair as alt
@@ -26,7 +30,6 @@ from retirement_strategy import BUFFER_SYMBOLS, TRANSFER_RATE, WITHDRAW_RATE
 MIN_YEARS = 5
 HISTORY_FROM = date(2000, 1, 1)
 DEFAULT_PRINCIPAL_WAN = 3000.0
-DEFAULT_RATE = 4.0
 # Ten years for every start, so starts are compared over the same length of retirement;
 # the book's 老周 A and B ran 17 each.
 START_HORIZON = 10
@@ -137,41 +140,21 @@ def every_order(n, samples=SAMPLES, seed=SEED):
     return np.vstack([np.arange(n), drawn]), False
 
 
-# ------------------------------------------------------------------ the two rules
-def fixed_withdrawal(returns, weights, principal, amount, orders):
-    """The book's rule: a fixed sum out at the start of every year, no inflation step.
-
-    Sold from each holding in proportion and never rebalanced, as everywhere else in the
-    app. A year that opens with less than the sum pays out what is left and ends the account.
-    Returns totals (orders, years + 1) and the year each order ran dry in, 0 if it never did.
-    """
-    r = np.asarray(returns, dtype=float)[orders]          # orders × years × holdings
-    paths, years = r.shape[:2]
-    value = np.tile(principal * np.asarray(weights, dtype=float), (paths, 1))
-    totals = np.empty((paths, years + 1))
-    totals[:, 0] = value.sum(axis=1)
-    dry = np.zeros(paths, dtype=int)
-    for k in range(years):
-        held = value.sum(axis=1)
-        enough = held > amount
-        keep = np.where(enough, 1 - amount / np.where(held > 0, held, 1), 0.0)
-        value = value * keep[:, None]
-        dry[(~enough) & (dry == 0)] = k + 1
-        value = value * (1 + r[:, k, :])
-        totals[:, k + 1] = value.sum(axis=1)
-    return totals, dry
-
-
+# ------------------------------------------------------------------ the rule
 def monthly_steps(returns, orders):
-    """Each year's return spread evenly over its twelve months, after a January of none.
+    """Each year's return spread over February to December, with nothing in January.
 
-    Month 0 is the first January, when the rule transfers before anything has moved, and
-    year k then grows over months 12k+1 to 12k+12 -- so the transfer opens every year, as
-    the book's withdrawal does.
+    January is when the rule transfers and sets the year's income, before the year has
+    moved, as the book's withdrawal opens each year; the year then grows over the eleven
+    months that follow. Kept out of January rather than run into the next one: carried
+    over, the last year's final piece fell after the run ended, and with no withdrawals at
+    all the order still changed the ending total.
     """
-    r = np.asarray(returns, dtype=float)[orders]
-    per_month = np.repeat((1 + r) ** (1 / 12) - 1, 12, axis=1)
-    return np.concatenate([np.zeros_like(per_month[:, :1]), per_month], axis=1)
+    r = np.asarray(returns, dtype=float)[orders]               # orders × years × holdings
+    per_month = (1 + r) ** (1 / 11) - 1
+    january = np.zeros_like(per_month[:, :, None, :])
+    months = np.concatenate([january, np.repeat(per_month[:, :, None, :], 11, axis=2)], axis=2)
+    return months.reshape(r.shape[0], r.shape[1] * 12, r.shape[2])
 
 
 def buffer_rule(returns, growth_weights, buffer_column, principal, share, orders,
@@ -201,8 +184,6 @@ def buffer_rule(returns, growth_weights, buffer_column, principal, share, orders
         if t % 12 == 0:
             if t:
                 totals.append(growth + buffer)
-            if t == months - 1:
-                break
             transfer = growth * transfer_rate
             growth, buffer = growth - transfer, buffer + transfer
             annual = buffer * withdraw_rate
@@ -212,75 +193,79 @@ def buffer_rule(returns, growth_weights, buffer_column, principal, share, orders
         buffer = buffer - spent
         growth = growth * (1 + growth_step[:, t])
         buffer = buffer * (1 + buffer_step[:, t])
+    totals.append(growth + buffer)
     return np.stack(incomes, axis=1), np.stack(totals, axis=1)
 
 
 # ------------------------------------------------------------------ assessment
-def assess(returns, weights, principal, rate, orders):
-    """Both rules over the given orders of one configuration's years."""
-    amount = principal * rate
-    totals, dry = fixed_withdrawal(returns.to_numpy(), weights.reindex(returns.columns).to_numpy(),
-                                   principal, amount, orders)
-    out = {'totals': totals, 'dry': dry, 'income': None}
+def assess(returns, weights, principal, orders):
+    """The buffer-pool rule over the given orders of one configuration's years.
+
+    Returns the year's income (orders, years) and totals (orders, years + 1), or None for a
+    configuration with no buffer pool, which the rule cannot run on.
+    """
     split = buffer_split(weights)
-    if split is not None:
-        growth, buffer = split
-        columns = list(growth.index) + [buffer]
-        frame = returns[columns]
-        income, pool_totals = buffer_rule(frame.to_numpy(), growth.to_numpy(), len(columns) - 1,
-                                          principal, float(growth.sum() / weights.sum()), orders)
-        out.update(income=income, pool_totals=pool_totals)
-    return out
+    if split is None:
+        return None
+    growth, buffer = split
+    columns = list(growth.index) + [buffer]
+    income, totals = buffer_rule(returns[columns].to_numpy(), growth.to_numpy(), len(columns) - 1,
+                                 principal, float(growth.sum() / weights.sum()), orders)
+    return {'income': income, 'totals': totals}
 
 
-def ranking(window_returns, configs, principal, rate):
+def measures(run):
+    """What one set of orders did to the income, and to what was left."""
+    income, totals = run['income'], run['totals']
+    floor = income.min(axis=1) / income[:, 0]
+    paid = income.sum(axis=1)
+    return {'floor': floor, 'paid': paid, 'ending': totals[:, -1]}
+
+
+def ranking(window_returns, configs, principal):
     """One row per configuration over the shared years, most order-sensitive first.
 
-    The measure is the best order's ending total over the worst's. With no withdrawal every
-    order ends at the same total, so whatever spread there is comes from the order alone,
-    not from one configuration having had better years than another.
+    The rule puts sequence risk on the income, so that is what is ranked: first by how far
+    the year's income fell below the first year's in the worst order, then by how much more
+    the best order paid in total than the worst. Every order holds the same years, so both
+    measure the order and not which configuration happened to have the better market.
     """
     rows, runs = [], {}
     for name, frame in window_returns.items():
-        orders, exact = every_order(len(frame))
-        run = assess(frame, configs[name], principal, rate, orders)
+        orders, _ = every_order(len(frame))
+        run = assess(frame, configs[name], principal, orders)
         runs[name] = (orders, run)
-        ending = run['totals'][:, -1]
-        worst, best = float(ending.min()), float(ending.max())
-        row = {'配置': name,
-               '順序差距倍數': best / worst if worst > 0 else float('inf'),
-               '最差順序期末（萬）': worst / 1e4,
-               'P10 期末（萬）': float(np.percentile(ending, 10)) / 1e4,
-               '中位期末（萬）': float(np.median(ending)) / 1e4,
-               'P90 期末（萬）': float(np.percentile(ending, 90)) / 1e4,
-               '歸零的排列': int((run['dry'] > 0).sum()),
-               '排列數': len(orders)}
-        if run['income'] is not None:
-            income = run['income']
-            row['緩衝池規則：最差順序生活費最低／首年'] = float((income.min(axis=1) / income[:, 0]).min())
-        rows.append(row)
+        m = measures(run)
+        rows.append({'配置': name,
+                     '生活費最低／首年（最差順序）': float(m['floor'].min()),
+                     '累計生活費差距': float(m['paid'].max() / m['paid'].min() - 1),
+                     '累計生活費：最差（萬）': float(m['paid'].min()) / 1e4,
+                     '累計生活費：中位（萬）': float(np.median(m['paid'])) / 1e4,
+                     '累計生活費：最好（萬）': float(m['paid'].max()) / 1e4,
+                     '期末資產：最差（萬）': float(m['ending'].min()) / 1e4,
+                     '期末資產：最好（萬）': float(m['ending'].max()) / 1e4,
+                     '排列數': len(orders)})
     table = pd.DataFrame(rows)
     if table.empty:
         return table, runs
-    table = table.sort_values(['歸零的排列', '順序差距倍數', '最差順序期末（萬）'],
-                              ascending=[False, False, True], kind='stable').reset_index(drop=True)
+    table = table.sort_values(['生活費最低／首年（最差順序）', '累計生活費差距'],
+                              ascending=[True, False], kind='stable').reset_index(drop=True)
     table.insert(0, '排名', range(1, len(table) + 1))
     return table, runs
 
 
-def start_years(returns, weights, principal, rate, horizon=START_HORIZON):
+def start_years(returns, weights, principal, horizon=START_HORIZON):
     """Each real starting year run for `horizon` years, in the order they happened."""
     rows = []
     for first in range(len(returns) - horizon + 1):
         frame = returns.iloc[first:first + horizon]
-        run = assess(frame, weights, principal, rate, np.arange(horizon)[None, :])
-        row = {'退休年': int(frame.index[0]), '期間': f'{frame.index[0]}–{frame.index[-1]}',
-               '期末（萬）': float(run['totals'][0, -1]) / 1e4,
-               '歸零年': int(run['dry'][0]) or None}
-        if run['income'] is not None:
-            income = run['income'][0]
-            row['生活費最低／首年'] = float(income.min() / income[0])
-        rows.append(row)
+        run = assess(frame, weights, principal, np.arange(horizon)[None, :])
+        m = measures(run)
+        rows.append({'退休年': int(frame.index[0]), '期間': f'{frame.index[0]}–{frame.index[-1]}',
+                     '首年生活費（萬）': float(run['income'][0, 0]) / 1e4,
+                     '累計生活費（萬）': float(m['paid'][0]) / 1e4,
+                     '生活費最低／首年': float(m['floor'][0]),
+                     '期末資產（萬）': float(m['ending'][0]) / 1e4})
     return pd.DataFrame(rows)
 
 
@@ -309,19 +294,20 @@ def _wan(value):
     return f'{value:,.0f} 萬'
 
 
-def _times(value):
-    # As how much more the best order ends with than the worst, to two places: over a run of
-    # strong years the configurations sit within thousandths of each other as ratios, and
-    # 1.102 against 1.102 printed a tie the ranking does not have.
-    return '無法計算（最差順序歸零）' if value == float('inf') else f'{value - 1:+.2%}'
+def _lines(frame, y, title, order_scale, dash, fmt):
+    return alt.Chart(frame).mark_line(point=True, strokeWidth=2).encode(
+        x=alt.X('退休後第幾年:O', axis=alt.Axis(labelAngle=0)),
+        y=alt.Y(f'{y}:Q', title=title, axis=alt.Axis(format=',.0f')),
+        color=alt.Color('順序:N', scale=order_scale, legend=alt.Legend(orient='bottom', columns=2, title=None)),
+        strokeDash=dash,
+        tooltip=['順序:N', '退休後第幾年:O', alt.Tooltip(f'{y}:Q', format=fmt)])
 
 
 def render_sequence_risk(current_weights=None):
     st.subheader('報酬順序風險')
     st.caption('同樣的報酬，只要出現的順序不同，退休後的結果就可能差很多。'
-               '這一頁用實際 ETF 價格，評估每個配置對順序有多敏感。')
+               '這一頁用實際 ETF 價格，評估每個配置在緩衝池提領法下對順序有多敏感。')
     principal = st.session_state.get('seq_principal_wan', DEFAULT_PRINCIPAL_WAN) * 1e4
-    rate = st.session_state.get('seq_rate', DEFAULT_RATE) / 100
     configs = configurations(current_weights)
     symbols = tuple(sorted({s for w in configs.values() for s in w.index}))
     today = datetime.now(ZoneInfo('Asia/Taipei')).date()
@@ -329,154 +315,139 @@ def render_sequence_risk(current_weights=None):
         histories, failures = load_histories(today, symbols)
     usable, excluded = {}, {}
     for name, weights in configs.items():
+        if buffer_split(weights) is None:
+            excluded[name] = '沒有緩衝池，緩衝池提領法無法套用'
+            continue
         frame, why = configuration_returns(histories, weights, today)
         if frame is None:
             excluded[name] = why
         else:
             usable[name] = frame
     if not usable:
-        st.warning('沒有任何配置有 5 個以上的完整年度，無法評估。')
+        st.warning(f'沒有任何含緩衝池的配置有 {MIN_YEARS} 個以上的完整年度，無法評估。')
         return
     shared = sorted(set.intersection(*(set(f.index) for f in usable.values())))
     window = {name: f.loc[shared] for name, f in usable.items()}
-    table, runs = ranking(window, configs, principal, rate)
+    table, runs = ranking(window, configs, principal)
 
     # ---------------------------------------------------------- 1. ranking, first thing
     st.markdown('### 報酬順序風險排名')
     _badge(ARTIFICIAL)
     st.caption(f'此排名用同一組真實年報酬（{shared[0]}–{shared[-1]}，共 {len(shared)} 年，'
                f'所有納入配置的共同年度）的所有排列計算，衡量的是「順序不同時結果差多少」，'
-               f'不是預測哪個配置未來表現較好。固定提領：每年年初領本金的 {rate:.1%}'
-               f'（{_wan(principal * rate / 1e4)}），不調整通膨。')
-    top = table.iloc[0]
-    times = top['順序差距倍數']
-    best = '—' if times == float('inf') else _wan(top['最差順序期末（萬）'] * times)
-    st.markdown(f'**{top["配置"]} 的順序風險最高**：同一組 {len(shared)} 年的報酬，最好與最差的順序，'
-                f'最好的順序期末資產比最差的多 **{_times(times)}**（最差 {_wan(top["最差順序期末（萬）"])}、最好 {best}）。'
-                f'順序風險最低的是 **{table.iloc[-1]["配置"]}**（{_times(table.iloc[-1]["順序差距倍數"])}）。')
-    shown = table.copy()
-    shown['順序差距倍數'] = shown['順序差距倍數'].map(_times)
-    shown = shown.rename(columns={'順序差距倍數': '順序差距（最好比最差多）'})
-    st.dataframe(shown, hide_index=True, width='stretch', column_config={
-        **{c: st.column_config.NumberColumn(c, format='%,.0f') for c in shown.columns if '（萬）' in c},
-        '緩衝池規則：最差順序生活費最低／首年': st.column_config.NumberColumn(
-            '緩衝池規則：最差順序生活費最低／首年', format='percent')})
-    st.caption('順序差距＝所有排列中，最好順序的期末資產比最差順序多幾 %；不提領時一定是 0%，'
-               '所以差距完全來自順序。有排列歸零的配置排在最前。緩衝池規則那一欄只有含緩衝池的配置才有，'
-               '不參與排名；它表示最差順序下，生活費最低落到首年的幾成。')
+               f'不是預測哪個配置未來表現較好。緩衝池提領法：每年 1 月成長池撥 {TRANSFER_RATE:.0%} 到緩衝池，'
+               f'再領緩衝池的 {WITHDRAW_RATE:.0%} 當年生活費，本金 {_wan(principal / 1e4)}。')
+    top, last = table.iloc[0], table.iloc[-1]
+    st.markdown(f'**{top["配置"]} 的順序風險最高**：最差的順序下，生活費最低落到首年的 '
+                f'**{top["生活費最低／首年（最差順序）"]:.1%}**；累計生活費最好的順序比最差的多 '
+                f'{top["累計生活費差距"]:.1%}。順序風險最低的是 **{last["配置"]}**'
+                f'（最低 {last["生活費最低／首年（最差順序）"]:.1%}）。')
+    st.dataframe(table, hide_index=True, width='stretch', column_config={
+        **{c: st.column_config.NumberColumn(c, format='%,.0f') for c in table.columns if '（萬）' in c},
+        '生活費最低／首年（最差順序）': st.column_config.NumberColumn('生活費最低／首年（最差順序）', format='percent'),
+        '累計生活費差距': st.column_config.NumberColumn('累計生活費差距（最好比最差多）', format='percent')})
+    st.caption('緩衝池提領法讓資產不會歸零，順序的影響落在生活費上，所以排名看生活費：'
+               '先比最差順序下生活費最低落到首年的幾成（越低越危險），同分再比累計生活費的差距。')
+    if len(shared) < 10:
+        st.caption(f'共同年度只有 {len(shared)} 年，而且是一段強勢的行情，各配置的差距都小；'
+                   '等更多配置累積到夠長的歷史，排名會更有意義。')
     if excluded:
-        st.caption('**未納入（完整年度不足）**：' + '；'.join(f'{n}：{why}' for n, why in excluded.items()))
+        st.caption('**未納入**：' + '；'.join(f'{n}：{why}' for n, why in excluded.items()))
         if '退休10' in excluded and '退休8' in usable:
             st.caption('退休10 與退休8 只差 009816 換成 0050，退休8 是它目前最接近的替身。')
     st.caption('只用實際 ETF 價格，所以沒有任何配置涵蓋 2008 年金融海嘯（最早的 0050 在 Yahoo 從 2009 年起）。')
-    with st.expander('調整假設（本金、提領率）'):
+    with st.expander('調整假設（本金）'):
         st.number_input('本金（萬元）', min_value=100.0, step=100.0, format='%.0f',
                         value=DEFAULT_PRINCIPAL_WAN, key='seq_principal_wan')
-        st.slider('固定提領率（每年領本金的 %）', min_value=1.0, max_value=8.0, step=0.5,
-                  value=DEFAULT_RATE, key='seq_rate',
-                  help='只影響書上的固定提領。緩衝池規則用它自己的撥出率 4%、領出率 25%。')
 
     # ---------------------------------------------------------- 2. one configuration
     st.markdown('### 個別配置：書上的四種順序')
     _badge(ARTIFICIAL)
-    names = list(table['配置'])
-    chosen = st.selectbox('選擇配置', names, index=0, key='seq_config')
-    frame = window[chosen]
-    weights = configs[chosen]
+    chosen = st.selectbox('選擇配置', list(table['配置']), index=0, key='seq_config')
+    frame, weights = window[chosen], configs[chosen]
     blended = (frame * weights.reindex(frame.columns)).sum(axis=1).to_numpy() / float(weights.sum())
     four = book_orders(blended)
-    run = assess(frame, weights, principal, rate, np.stack(list(four.values())))
+    run = assess(frame, weights, principal, np.stack(list(four.values())))
     years = [str(y) for y in frame.index]
     st.caption(f'{chosen} 在 {years[0]}–{years[-1]} 的真實年報酬：'
                + '、'.join(f'{y} {r:+.1%}' for y, r in zip(years, blended))
                + '。只有「原始順序」是實際發生的；其他三種是把同一組年報酬重新排列。')
-    balance = pd.DataFrame([{'退休後第幾年': k, '順序': order_label(o), '帳戶餘額（萬）': run['totals'][i, k] / 1e4}
-                            for i, o in enumerate(four) for k in range(len(frame) + 1)])
     order_scale = alt.Scale(domain=[order_label(o) for o in ORDERS], range=['#F1F5F9'] + COLORS[3:6])
     dash = alt.condition(alt.datum['順序'] == order_label(ORIGINAL), alt.value([1, 0]), alt.value([5, 3]))
-    st.markdown('**固定提領**（書上的做法）：帳戶餘額')
-    st.altair_chart(alt.Chart(balance).mark_line(point=True, strokeWidth=2).encode(
-        x=alt.X('退休後第幾年:O', axis=alt.Axis(labelAngle=0)),
-        y=alt.Y('帳戶餘額（萬）:Q', axis=alt.Axis(format=',.0f')),
-        color=alt.Color('順序:N', scale=order_scale, legend=alt.Legend(orient='bottom', columns=2, title=None)),
-        strokeDash=dash,
-        tooltip=['順序:N', '退休後第幾年:O', alt.Tooltip('帳戶餘額（萬）:Q', format=',.0f')]
-    ).properties(height=320), width='stretch')
-    if run['income'] is not None:
-        income = pd.DataFrame([{'退休後第幾年': k + 1, '順序': order_label(o), '年生活費（萬）': run['income'][i, k] / 1e4}
-                               for i, o in enumerate(four) for k in range(len(frame))])
-        st.markdown('**緩衝池規則**（成長池每年撥 4%、緩衝池領 25%）：每年生活費')
-        st.altair_chart(alt.Chart(income).mark_line(point=True, strokeWidth=2).encode(
-            x=alt.X('退休後第幾年:O', axis=alt.Axis(labelAngle=0)),
-            y=alt.Y('年生活費（萬）:Q', axis=alt.Axis(format=',.0f')),
-            color=alt.Color('順序:N', scale=order_scale, legend=alt.Legend(orient='bottom', columns=2, title=None)),
-            strokeDash=dash,
-            tooltip=['順序:N', '退休後第幾年:O', alt.Tooltip('年生活費（萬）:Q', format=',.1f')]
-        ).properties(height=280), width='stretch')
-    else:
-        st.caption(f'{chosen} 沒有緩衝池，只看固定提領。')
+    income = pd.DataFrame([{'退休後第幾年': k + 1, '順序': order_label(o), '年生活費（萬）': run['income'][i, k] / 1e4}
+                           for i, o in enumerate(four) for k in range(len(frame))])
+    st.markdown('**每年生活費**')
+    st.altair_chart(_lines(income, '年生活費（萬）', '年生活費（萬）', order_scale, dash, ',.1f')
+                    .properties(height=300), width='stretch')
+    assets = pd.DataFrame([{'退休後第幾年': k, '順序': order_label(o), '總資產（萬）': run['totals'][i, k] / 1e4}
+                           for i, o in enumerate(four) for k in range(len(frame) + 1)])
+    st.markdown('**總資產**（已扣掉領走的生活費）')
+    st.altair_chart(_lines(assets, '總資產（萬）', '總資產（萬）', order_scale, dash, ',.0f')
+                    .properties(height=260), width='stretch')
     orders, full = runs[chosen]
-    ending = pd.DataFrame({'期末資產（萬）': full['totals'][:, -1] / 1e4})
-    st.markdown(f'**全部 {len(orders)} 種排列的期末資產分布**（固定提領；白線是原始順序）')
-    original = float(full['totals'][0, -1]) / 1e4
-    st.altair_chart((alt.Chart(ending).mark_bar(color=COLORS[0]).encode(
-        x=alt.X('期末資產（萬）:Q', bin=alt.Bin(maxbins=30), title='期末資產（萬）', axis=alt.Axis(format=',.0f')),
+    m = measures(full)
+    paid = pd.DataFrame({'累計生活費（萬）': m['paid'] / 1e4})
+    original = float(m['paid'][0]) / 1e4
+    st.markdown(f'**全部 {len(orders)} 種排列的累計生活費分布**（白線是原始順序，{_wan(original)}）')
+    st.altair_chart((alt.Chart(paid).mark_bar(color=COLORS[0]).encode(
+        x=alt.X('累計生活費（萬）:Q', bin=alt.Bin(maxbins=30), title='累計生活費（萬）', axis=alt.Axis(format=',.0f')),
         y=alt.Y('count():Q', title='排列數'),
-        tooltip=[alt.Tooltip('期末資產（萬）:Q', bin=True, format=',.0f'), alt.Tooltip('count():Q', title='排列數')])
-        + alt.Chart(pd.DataFrame({'x': [original]})).mark_rule(color='#F1F5F9', strokeWidth=2).encode(x=alt.X('x:Q', title='期末資產（萬）'))
+        tooltip=[alt.Tooltip('累計生活費（萬）:Q', bin=True, format=',.0f'), alt.Tooltip('count():Q', title='排列數')])
+        + alt.Chart(pd.DataFrame({'x': [original]})).mark_rule(color='#F1F5F9', strokeWidth=2).encode(
+            x=alt.X('x:Q', title='累計生活費（萬）'))
     ).properties(height=220), width='stretch')
     with st.expander('表格檢視'):
-        st.dataframe(balance.pivot(index='退休後第幾年', columns='順序', values='帳戶餘額（萬）').round(0), width='stretch')
+        st.dataframe(income.pivot(index='退休後第幾年', columns='順序', values='年生活費（萬）').round(1), width='stretch')
 
     # ---------------------------------------------------------- 3. real starting years
     long = {n: f for n, f in usable.items() if len(f) >= START_HORIZON + 2}
     st.markdown('### 不同退休起點')
     _badge(REAL)
     if not long:
-        st.caption(f'沒有配置有 {START_HORIZON + 2} 年以上的完整年度，無法比較不同起點。')
-    else:
-        st.caption(f'書上老周 A／B 的做法：同樣的本金與提領，只差哪一年退休。每個起點都看 {START_HORIZON} 年，'
-                   f'用的是實際發生的年份順序。只有 {"、".join(long)} 的資料夠長。')
-        starts = pd.concat([start_years(f, configs[n], principal, rate).assign(配置=n) for n, f in long.items()])
-        st.altair_chart(alt.Chart(starts).mark_bar().encode(
-            x=alt.X('退休年:O', axis=alt.Axis(labelAngle=0)), xOffset='配置:N',
-            y=alt.Y('期末（萬）:Q', title=f'{START_HORIZON} 年後帳戶餘額（萬）', axis=alt.Axis(format=',.0f')),
-            color=alt.Color('配置:N', scale=alt.Scale(domain=list(long), range=COLORS[:len(long)]),
-                            legend=alt.Legend(orient='bottom', title=None)),
-            tooltip=['配置:N', '期間:N', alt.Tooltip('期末（萬）:Q', format=',.0f')]
-        ).properties(height=280), width='stretch')
-        for name, part in starts.groupby('配置', sort=False):
-            best, worst = part.loc[part['期末（萬）'].idxmax()], part.loc[part['期末（萬）'].idxmin()]
-            line = (f'**{name}**：最好是 {best["退休年"]} 年退休（{_wan(best["期末（萬）"])}），'
-                    f'最差是 {worst["退休年"]} 年（{_wan(worst["期末（萬）"])}），相差 '
-                    f'{best["期末（萬）"] / worst["期末（萬）"]:.2f} 倍。')
-            if '生活費最低／首年' in part and part['生活費最低／首年'].notna().any():
-                line += f' 緩衝池規則下，生活費最低落到首年的 {part["生活費最低／首年"].min():.0%}。'
-            st.markdown(line)
-        with st.expander('表格檢視'):
-            st.dataframe(starts, hide_index=True, width='stretch')
+        st.caption(f'沒有含緩衝池的配置有 {START_HORIZON + 2} 年以上的完整年度，無法比較不同起點。')
+        return
+    st.caption(f'書上老周 A／B 的做法：同樣的本金，只差哪一年退休。每個起點都看 {START_HORIZON} 年，'
+               f'用的是實際發生的年份順序。只有 {"、".join(long)} 的資料夠長。')
+    starts = pd.concat([start_years(f, configs[n], principal).assign(配置=n) for n, f in long.items()])
+    st.altair_chart(alt.Chart(starts).mark_bar().encode(
+        x=alt.X('退休年:O', axis=alt.Axis(labelAngle=0)), xOffset='配置:N',
+        y=alt.Y('累計生活費（萬）:Q', title=f'{START_HORIZON} 年累計生活費（萬）', axis=alt.Axis(format=',.0f')),
+        color=alt.Color('配置:N', scale=alt.Scale(domain=list(long), range=COLORS[:len(long)]),
+                        legend=alt.Legend(orient='bottom', title=None)),
+        tooltip=['配置:N', '期間:N', alt.Tooltip('累計生活費（萬）:Q', format=',.0f'),
+                 alt.Tooltip('生活費最低／首年:Q', format='.0%'), alt.Tooltip('期末資產（萬）:Q', format=',.0f')]
+    ).properties(height=280), width='stretch')
+    for name, part in starts.groupby('配置', sort=False):
+        best, worst = part.loc[part['累計生活費（萬）'].idxmax()], part.loc[part['累計生活費（萬）'].idxmin()]
+        st.markdown(f'**{name}**：{START_HORIZON} 年累計生活費最多的是 {best["退休年"]} 年退休（{_wan(best["累計生活費（萬）"])}），'
+                    f'最少的是 {worst["退休年"]} 年（{_wan(worst["累計生活費（萬）"])}），相差 '
+                    f'{best["累計生活費（萬）"] / worst["累計生活費（萬）"]:.2f} 倍；'
+                    f'生活費最低落到首年的 {part["生活費最低／首年"].min():.0%}。')
+    with st.expander('表格檢視'):
+        st.dataframe(starts, hide_index=True, width='stretch')
 
-        # ------------------------------------------------------ 4. the long window
-        st.markdown(f'### 長期：{"、".join(long)} 的完整歷史')
-        _badge(ARTIFICIAL)
-        rows = []
-        for name, f in long.items():
-            orders, exact = every_order(len(f))
-            r = assess(f, configs[name], principal, rate, orders)
-            w = configs[name]
-            book = book_orders((f * w.reindex(f.columns)).sum(axis=1).to_numpy() / float(w.sum()))
-            b = assess(f, w, principal, rate, np.stack(list(book.values())))
-            end = r['totals'][:, -1] / 1e4
-            row = {'配置': name, '期間': f'{f.index[0]}–{f.index[-1]}（{len(f)} 年）',
-                   '排列': f'{len(orders):,} 種' + ('' if exact else '（抽樣）'),
-                   '最差（萬）': end.min(), 'P10（萬）': np.percentile(end, 10), '中位（萬）': np.median(end),
-                   'P90（萬）': np.percentile(end, 90), '歸零比例': float((r['dry'] > 0).mean())}
-            for i, o in enumerate(book):
-                row[f'{o}（萬）'] = b['totals'][i, -1] / 1e4
-            rows.append(row)
-        st.dataframe(pd.DataFrame(rows), hide_index=True, width='stretch', column_config={
-            **{c: st.column_config.NumberColumn(c, format='%,.0f') for c in rows[0] if '（萬）' in c},
-            '歸零比例': st.column_config.NumberColumn('歸零比例', format='percent')})
-        st.caption(f'「{ORIGINAL}（萬）」是真實歷史，其他都是人為排列。不和上方的排名比較：年數不同。'
-                   'Yahoo 的 0050 還原價格漏記 2009–2012 年配息，2014 年 10 月那筆又多算一次，'
-                   '所以含 0050 的長期數字有誤差；上方排名用 2020 年以後的年度，不受影響。')
+    # ---------------------------------------------------------- 4. the long window
+    st.markdown(f'### 長期：{"、".join(long)} 的完整歷史')
+    _badge(ARTIFICIAL)
+    rows = []
+    for name, f in long.items():
+        orders, exact = every_order(len(f))
+        lm = measures(assess(f, configs[name], principal, orders))
+        w = configs[name]
+        book = book_orders((f * w.reindex(f.columns)).sum(axis=1).to_numpy() / float(w.sum()))
+        bm = measures(assess(f, w, principal, np.stack(list(book.values()))))
+        row = {'配置': name, '期間': f'{f.index[0]}–{f.index[-1]}（{len(f)} 年）',
+               '排列': f'{len(orders):,} 種' + ('' if exact else '（抽樣）'),
+               '生活費最低／首年：最差': float(lm['floor'].min()),
+               '生活費最低／首年：P10': float(np.percentile(lm['floor'], 10)),
+               '累計生活費：最差（萬）': lm['paid'].min() / 1e4, '累計生活費：中位（萬）': np.median(lm['paid']) / 1e4,
+               '累計生活費：最好（萬）': lm['paid'].max() / 1e4}
+        for i, o in enumerate(book):
+            row[f'{o}：累計生活費（萬）'] = bm['paid'][i] / 1e4
+        rows.append(row)
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width='stretch', column_config={
+        **{c: st.column_config.NumberColumn(c, format='%,.0f') for c in rows[0] if '（萬）' in c},
+        **{c: st.column_config.NumberColumn(c, format='percent') for c in rows[0] if '首年' in c}})
+    st.caption(f'「{ORIGINAL}」是真實歷史，其他都是人為排列。不和上方的排名比較：年數不同。'
+               'Yahoo 的 0050 還原價格漏記 2009–2012 年配息，2014 年 10 月那筆又多算一次，'
+               '所以含 0050 的長期數字有誤差；上方排名用 2020 年以後的年度，不受影響。')

@@ -7,8 +7,8 @@ import pytest
 
 from retirement_strategy import backtest
 from sequence_risk import (EXACT_UP_TO, MIN_YEARS, ORIGINAL, book_orders, buffer_rule,
-                           complete_years, configuration_returns, every_order,
-                           fixed_withdrawal, ranking, start_years)
+                           buffer_split, complete_years, configuration_returns, every_order,
+                           monthly_steps, ranking, start_years)
 
 TODAY = date(2026, 11, 12)
 
@@ -57,51 +57,57 @@ def test_every_order_is_run_once_and_history_is_the_first():
 
 
 def test_without_withdrawals_the_order_changes_nothing():
-    """The whole case for the measure: any spread it shows comes from withdrawing."""
+    """The whole case for the measure: any spread it shows comes from what is paid out."""
     returns = np.array([[.3, .02], [-.25, .01], [.1, .03], [-.05, .0], [.2, .02], [.15, .01]])
     orders, _ = every_order(6)
-    totals, dry = fixed_withdrawal(returns, [.9, .1], 1000.0, 0.0, orders)
+    _, totals = buffer_rule(returns, [1.0], 1, 1000.0, .9, orders, transfer_rate=0, withdraw_rate=0)
     assert np.allclose(totals[:, -1], totals[0, -1])
-    totals, _ = fixed_withdrawal(returns, [.9, .1], 1000.0, 40.0, orders)
-    assert totals[:, -1].max() / totals[:, -1].min() > 1.05
+    income, _ = buffer_rule(returns, [1.0], 1, 1000.0, .9, orders)
+    assert income.sum(axis=1).max() / income.sum(axis=1).min() > 1.05
 
 
-def test_a_fixed_withdrawal_by_hand_and_the_year_it_runs_dry():
-    totals, dry = fixed_withdrawal(np.array([[.1], [.0]]), [1.0], 1000.0, 100.0, np.array([[0, 1]]))
-    assert totals[0].tolist() == pytest.approx([1000, 990, 890])
-    _, dry = fixed_withdrawal(np.array([[-.5], [-.5], [-.5]]), [1.0], 100.0, 40.0, np.array([[0, 1, 2]]))
-    # 100, less 40, is 60, halved to 30: short of 40 when year 2 opens.
-    assert dry[0] == 2
+def test_only_a_configuration_with_a_buffer_pool_can_be_assessed():
+    assert buffer_split(pd.Series({'0050.TW': .5, '00662.TW': .4, '00865B.TW': .1})) is not None
+    assert buffer_split(pd.Series({'0050.TW': 1 / 3, '2330.TW': 1 / 3, '2454.TW': 1 / 3})) is None
 
 
 def test_the_buffer_rule_matches_backtest_exactly():
     """The vectorised loop must give backtest()'s own numbers on the same months."""
     returns = np.array([[.25, -.1, .02], [-.3, .05, .03], [.12, .2, .01], [.4, -.2, -.02]])
-    steps = (1 + np.repeat(returns, 12, axis=0)) ** (1 / 12) - 1
-    steps = np.vstack([np.zeros((1, 3)), steps])
+    steps = monthly_steps(returns, np.array([[0, 1, 2, 3]]))[0]
     index = pd.date_range('2020-01-31', periods=len(steps), freq='ME')
     prices = pd.DataFrame(100 * np.cumprod(1 + steps, axis=0), index=index, columns=['a', 'b', 'buf'])
     run = backtest(prices[['a', 'b']], prices['buf'], 30_000_000, .9, growth_weights={'a': .5, 'b': .4})
-    expected = run.loc[run['撥款月'], '年生活費'].to_numpy()[:len(returns)]
+    expected = run.loc[run['撥款月'], '年生活費'].to_numpy()
     income, totals = buffer_rule(returns, [.5, .4], 2, 30_000_000, .9, np.array([[0, 1, 2, 3]]))
     assert income[0] == pytest.approx(expected, rel=1e-12)
-    assert totals[0, -1] == pytest.approx(run['總資產'].iloc[-2], rel=1e-12)
+    assert totals[0, -1] == pytest.approx(run['總資產'].iloc[-1], rel=1e-12)
+
+
+def test_a_years_return_lands_whole_within_that_year():
+    steps = monthly_steps(np.array([[.21], [-.1]]), np.array([[0, 1]]))[0, :, 0]
+    assert steps[0] == 0 and steps[12] == 0
+    assert np.prod(1 + steps[:12]) == pytest.approx(1.21)
+    assert np.prod(1 + steps[12:]) == pytest.approx(.9)
 
 
 def test_the_ranking_puts_the_most_order_sensitive_first():
     years = list(range(2020, 2026))
-    calm = pd.DataFrame({'X': [.05, .04, .06, .05, .05, .04]}, index=years)
-    wild = pd.DataFrame({'Y': [.6, -.4, .5, -.3, .4, -.2]}, index=years)
-    configs = {'平穩': pd.Series({'X': 1.0}), '劇烈': pd.Series({'Y': 1.0})}
-    table, _ = ranking({'平穩': calm, '劇烈': wild}, configs, 30_000_000, .04)
+    buffer = [.02, .02, .02, .02, .02, .02]
+    calm = pd.DataFrame({'X': [.05, .04, .06, .05, .05, .04], '00865B.TW': buffer}, index=years)
+    wild = pd.DataFrame({'Y': [.6, -.4, .5, -.3, .4, -.2], '00865B.TW': buffer}, index=years)
+    configs = {'平穩': pd.Series({'X': .9, '00865B.TW': .1}), '劇烈': pd.Series({'Y': .9, '00865B.TW': .1})}
+    table, _ = ranking({'平穩': calm, '劇烈': wild}, configs, 30_000_000)
     assert list(table['配置']) == ['劇烈', '平穩'] and list(table['排名']) == [1, 2]
-    assert table.loc[1, '順序差距倍數'] < table.loc[0, '順序差距倍數']
+    assert table.loc[0, '生活費最低／首年（最差順序）'] < table.loc[1, '生活費最低／首年（最差順序）']
     assert (table['排列數'] == factorial(6)).all()
 
 
 def test_starting_years_run_in_the_order_they_happened():
     years = list(range(2009, 2026))
-    frame = pd.DataFrame({'X': np.linspace(-.2, .3, len(years))}, index=years)
-    starts = start_years(frame, pd.Series({'X': 1.0}), 1000.0, .04, horizon=10)
+    frame = pd.DataFrame({'X': np.linspace(-.2, .3, len(years)), '00865B.TW': .02}, index=years)
+    starts = start_years(frame, pd.Series({'X': .9, '00865B.TW': .1}), 30_000_000, horizon=10)
     assert list(starts['退休年']) == list(range(2009, 2017))
     assert starts['期間'].iloc[0] == '2009–2018'
+    # Every start opens on the same principal, so the same first year's income.
+    assert starts['首年生活費（萬）'].nunique() == 1

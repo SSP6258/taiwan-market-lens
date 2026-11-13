@@ -593,8 +593,9 @@ def test_the_emergency_tab_is_a_method_page_not_a_calculator():
 
 
 def test_sequence_tab_ranks_the_configurations_with_enough_history():
-    """Real prices only: a configuration holding a fund too young to have five whole years is
-    left out and named, and the page says which results are history and which are not."""
+    """Real prices and the buffer-pool rule only: a configuration with a fund too young for
+    five whole years, or with no buffer pool, is left out and named, and the page says which
+    results are history and which are not."""
     def young(symbol, start, end):
         frame, stamp = fixture_history(symbol, start, end)
         if symbol in ("009816.TW", "009826.TW", "00984B.TWO"):
@@ -606,11 +607,13 @@ def test_sequence_tab_ranks_the_configurations_with_enough_history():
         app = app.run(timeout=90)
         assert not app.exception
         assert any(h.value == "報酬順序風險" for h in app.subheader)
-        ranked = next(d.value for d in app.dataframe if "順序差距（最好比最差多）" in d.value.columns)
-        assert set(ranked["配置"]) == {"衝刺", "退休6", "退休7", "退休8", "退休9"}
-        assert list(ranked["排名"]) == list(range(1, 6))
+        ranked = next(d.value for d in app.dataframe if "生活費最低／首年（最差順序）" in d.value.columns)
+        assert set(ranked["配置"]) == {"退休6", "退休7", "退休8", "退休9"}
+        assert list(ranked["排名"]) == list(range(1, 5))
         text = " ".join(str(c.value) for c in app.caption) + " ".join(str(m.value) for m in app.markdown)
         assert "退休10" in text and "009816" in text
+        # 衝刺 has no buffer pool, so the rule this tab measures cannot run on it.
+        assert "衝刺：沒有緩衝池" in text
         # st.badge renders as Markdown (":orange-badge[...]").
         badges = " ".join(str(m.value) for m in app.markdown if "-badge[" in str(m.value))
         assert "人為排列（非真實歷史）" in badges and "badge[真實歷史]" in badges
