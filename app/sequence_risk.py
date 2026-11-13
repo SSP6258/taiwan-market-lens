@@ -449,5 +449,4 @@ def render_sequence_risk(current_weights=None):
         **{c: st.column_config.NumberColumn(c, format='%,.0f') for c in rows[0] if '（萬）' in c},
         **{c: st.column_config.NumberColumn(c, format='percent') for c in rows[0] if '首年' in c}})
     st.caption(f'「{ORIGINAL}」是真實歷史，其他都是人為排列。不和上方的排名比較：年數不同。'
-               'Yahoo 的 0050 還原價格漏記 2009–2012 年配息，2014 年 10 月那筆又多算一次，'
-               '所以含 0050 的長期數字有誤差；上方排名用 2020 年以後的年度，不受影響。')
+               '0050 的還原價格已依證交所除權息資料補上 Yahoo 漏記的 2009–2014 年配息。')

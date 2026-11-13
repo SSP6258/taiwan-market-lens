@@ -348,3 +348,37 @@ def test_a_split_is_repaired_before_the_currency_is_applied():
     converted = to_twd(repair_units(frame), "VT", rates)
     assert converted.attrs["unit_breaks"] == [(frame.index[30], 4)]
     assert converted["Close"].tolist() == pytest.approx((clean * rates).tolist())
+
+
+def _with_distributions(closes, dividends, start="2012-10-01"):
+    index = pd.bdate_range(start, periods=len(closes))
+    frame = pd.DataFrame({"Close": closes, "Adj Close": closes, "Volume": 1000,
+                          "Dividends": dividends}, index=index, dtype=float)
+    return frame
+
+
+def test_a_series_with_sound_distributions_keeps_yahoos_adjusted_prices():
+    from market import rebuild_adjusted
+    h = _with_distributions([10, 10, 10, 10], [0, 0, .2, 0])
+    assert rebuild_adjusted(h, "TEST.TW") is h
+
+
+def test_an_official_distribution_yahoo_never_recorded_is_applied(monkeypatch):
+    """0050 had no distribution at all on Yahoo for 2009-2012; the exchange's are added."""
+    import market
+    h = _with_distributions([50, 50, 48, 48], [0, 0, 0, 0])
+    monkeypatch.setitem(market.OFFICIAL_DISTRIBUTIONS, "TEST.TW",
+                        ((f"{h.index[2]:%Y-%m-%d}", 2.0, 50.0),))
+    rebuilt = market.rebuild_adjusted(h, "TEST.TW")
+    # A 4% distribution: every close before it is scaled by 0.96, those after are not.
+    assert rebuilt["Adj Close"].tolist() == pytest.approx([48, 48, 48, 48])
+    assert rebuilt.attrs["adjusted_rebuilt"] == [h.index[2]]
+
+
+def test_a_distribution_in_the_wrong_unit_is_scaled_before_it_adjusts():
+    """Yahoo's 2014-10 0050 distribution sat in the pre-split unit beside a new-unit price."""
+    from market import rebuild_adjusted
+    h = _with_distributions([16.25, 16.25, 15.9, 15.9], [0, 0, 1.55, 0])
+    h.attrs["unit_breaks"] = [(pd.Timestamp("2012-01-02"), 4)]
+    rebuilt = rebuild_adjusted(h, "TEST.TW")
+    assert rebuilt["Adj Close"].iloc[0] == pytest.approx(16.25 * (1 - 1.55 / 4 / 16.25))

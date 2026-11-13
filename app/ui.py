@@ -79,6 +79,11 @@ def unit_notice(found, label):
         st.caption('下列標的以美元計價，已按當日匯率換算為新臺幣，**報酬因此包含匯率變動**：'
                    + '、'.join(label(s) for s in converted)
                    + '。與美元帳戶對帳單的數字會不同，差額就是台幣的升貶。')
+    adjusted = found.get('adjusted') or {}
+    if adjusted:
+        st.caption('下列標的的還原價格已依證交所除權息資料重算（Yahoo 漏記或記錯了這些配息）：'
+                   + '、'.join('{}：{}'.format(label(s), '、'.join(f'{d:%Y/%m/%d}' for d in days))
+                               for s, days in adjusted.items()) + '。')
     suspects = found.get('unit_suspects') or {}
     if suspects:
         st.caption('下列日期的價格跳動超過市場可能的幅度，但比例不是整數，'

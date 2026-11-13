@@ -283,19 +283,99 @@ def repair_units(history):
     return history
 
 
+# Yahoo switched 0050's price units on 2014-01-02 but its dividend units only a year later,
+# leaving 2014-10-24 quoted in the old unit beside a new-unit price: a 9.53% single
+# distribution where the real figure is 2.38%. The price repair cannot reach it, because the
+# two boundaries are not the same day. Each event is judged against the price next to it
+# instead, and only rescaled when a ratio already detected in this same series brings it back
+# into a plausible band -- a series with no split is never touched, so a genuinely large
+# distribution stays as published.
+EVENT_YIELD_CAP = 0.08
+
+
+def repair_distribution_units(history):
+    breaks = history.attrs.get('unit_breaks') or []
+    if not breaks or 'Dividends' not in history:
+        return history
+    repaired = history['Dividends'].copy()
+    ratios = sorted({whole for _, whole in breaks}, reverse=True)
+    for when, value in history['Dividends'][history['Dividends'] > 0].items():
+        earlier = history['Close'].loc[history.index < when]
+        if not len(earlier):
+            continue
+        price = float(earlier.iloc[-1])
+        if price <= 0 or value / price <= EVENT_YIELD_CAP:
+            continue
+        for whole in ratios:
+            if value / whole / price <= EVENT_YIELD_CAP:
+                repaired.loc[when] = value / whole
+                break
+    history = history.copy()
+    history['Dividends'] = repaired
+    history.attrs['unit_breaks'] = breaks
+    return history
+
+
+# Distributions Yahoo never recorded, from the exchange's own ex-dividend table (TWSE
+# TWT49U, 除權除息計算結果表, fetched 2026-11-13): the date, the cash per unit and the close
+# before it, both in the units of their day. Only the ratio of the two is used, so it needs
+# no conversion across the splits since. 0050 is missing every one from 2009 to 2012, which
+# left its 還原價格 short by about 2% a year there; 2013 and 2014 are listed too so the
+# exchange's figure, not Yahoo's misplaced 2014 one, is the one applied.
+OFFICIAL_DISTRIBUTIONS = {
+    "0050.TW": (("2009-10-23", 1.00, 53.70), ("2010-10-25", 2.20, 57.10),
+                ("2011-10-26", 1.95, 53.60), ("2012-10-24", 1.85, 52.90),
+                ("2013-10-24", 1.35, 58.70), ("2014-10-24", 1.55, 65.05)),
+}
+
+
+def rebuild_adjusted(history, symbol):
+    """Recompute 還原價格 from the close and the distributions, where Yahoo's is known wrong.
+
+    Only for a series whose distributions needed a unit repair or have official records to
+    add: elsewhere Yahoo's own Adj Close is kept as it comes. Each distribution scales every
+    earlier close by one minus its yield, which is how the adjusted series is defined.
+    """
+    if "Dividends" not in history or "Adj Close" not in history or history.empty:
+        return history
+    official = OFFICIAL_DISTRIBUTIONS.get(symbol, ())
+    repaired = repair_distribution_units(history)
+    if not official and repaired["Dividends"].equals(history["Dividends"]):
+        return history
+    close = repaired["Close"]
+    yields = {}
+    for when, cash in repaired["Dividends"][repaired["Dividends"] > 0].items():
+        earlier = close.loc[close.index < when]
+        if len(earlier) and earlier.iloc[-1] > 0:
+            yields[when] = float(cash / earlier.iloc[-1])
+    for day, cash, before in official:
+        traded = close.index[close.index >= pd.Timestamp(day)]
+        if len(traded) and pd.Timestamp(day) > close.index[0]:
+            yields[traded[0]] = cash / before          # the exchange's figure wins
+    factor = pd.Series(1.0, index=close.index)
+    for when, rate in yields.items():
+        factor.loc[close.index < when] *= 1 - rate
+    rebuilt = repaired.copy()
+    rebuilt["Adj Close"] = close * factor
+    rebuilt.attrs = {**history.attrs, "adjusted_rebuilt": sorted(
+        pd.Timestamp(day) for day, _, _ in official if close.index[0] < pd.Timestamp(day) <= close.index[-1])}
+    return rebuilt
+
+
 @st.cache_data(ttl=3600, max_entries=256, show_spinner=False)
 def load_symbol(symbol: str, start: date, end: date):
     # Writable on both Windows and Community Cloud; no repository credentials.
     yf.set_tz_cache_location(str(Path(tempfile.gettempdir()) / "tw-compare-yf"))
     history = yf.Ticker(symbol).history(
         start=start.isoformat(), end=(end + timedelta(days=1)).isoformat(),
-        auto_adjust=False, actions=False, timeout=20, raise_errors=True,
+        auto_adjust=False, actions=True, timeout=20, raise_errors=True,
     )
     if history.empty:
         raise ValueError("此區間沒有資料，請檢查市場後綴或上市日期。")
     history.index = pd.DatetimeIndex(history.index).tz_localize(None).normalize()
     history = history.loc[~history.index.duplicated(keep="last")].sort_index()
-    history = to_twd(repair_units(history), symbol)
+    # Units before distributions: a yield is only meaningful once price and cash agree.
+    history = to_twd(rebuild_adjusted(repair_units(history), symbol), symbol)
     return history, datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d %H:%M")
 
 
@@ -321,6 +401,8 @@ def load_frame(symbols, start, end, field):
                 for kind in ("unit_breaks", "unit_suspects"):
                     if history.attrs.get(kind):
                         repaired.setdefault(kind, {})[symbol] = history.attrs[kind]
+                if field == "Adj Close" and history.attrs.get("adjusted_rebuilt"):
+                    repaired.setdefault("adjusted", {})[symbol] = history.attrs["adjusted_rebuilt"]
                 if history.attrs.get("converted_from"):
                     repaired.setdefault("converted", {})[symbol] = history.attrs["converted_from"]
             except Exception as exc:
